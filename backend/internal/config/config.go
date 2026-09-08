@@ -26,6 +26,7 @@ type Config struct {
 	MaxConcurrentEnrichers int
 	DefaultUserAgent       string
 	Proxies                []string
+	GooglePlacesAPIKey     string
 }
 
 func LoadConfig() (*Config, error) {
@@ -48,6 +49,7 @@ func LoadConfig() (*Config, error) {
 	maxScrapers := getEnvInt("MAX_CONCURRENT_SCRAPERS", 5)
 	maxEnrichers := getEnvInt("MAX_CONCURRENT_ENRICHERS", 10)
 	defaultUA := cleanStr(getEnv("DEFAULT_USER_AGENT", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"))
+	googlePlacesAPIKey := cleanStr(getEnv("GOOGLE_PLACES_API_KEY", ""))
 
 	rawProxies := cleanStr(getEnv("PROXIES", ""))
 	var proxies []string
@@ -79,6 +81,7 @@ func LoadConfig() (*Config, error) {
 		MaxConcurrentEnrichers: maxEnrichers,
 		DefaultUserAgent:       defaultUA,
 		Proxies:                proxies,
+		GooglePlacesAPIKey:     googlePlacesAPIKey,
 	}, nil
 }
 

@@ -59,8 +59,13 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     const responseReqId = response.headers.get('X-Request-ID') || reqId;
 
     if (response.status === 401) {
-      if (typeof window !== 'undefined' && !window.location.pathname.includes('/login')) {
-        window.location.href = '/login';
+      if (
+        typeof window !== 'undefined' &&
+        !window.location.pathname.includes('/login') &&
+        !endpoint.includes('/auth/me') &&
+        !endpoint.includes('/auth/login')
+      ) {
+        window.location.replace('/login');
       }
       throw {
         message: 'Unauthorized',

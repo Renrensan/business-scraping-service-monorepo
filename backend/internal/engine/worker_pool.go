@@ -2,13 +2,10 @@ package engine
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"business-scraping-service/backend/internal/config"
 	"business-scraping-service/backend/internal/engine/enrichment"
@@ -39,7 +36,7 @@ func NewWorkerPool(
 ) *WorkerPool {
 	rotator := proxy.NewRotator(cfg.Proxies)
 	webClient := gmaps.NewWebClient(rotator, cfg.DefaultUserAgent)
-	placesClient := gmaps.NewPlacesAPIClient("")
+	placesClient := gmaps.NewPlacesAPIClient(cfg.GooglePlacesAPIKey)
 	crawler := enrichment.NewCrawler(rotator, cfg.DefaultUserAgent)
 
 	maxScrapers := cfg.MaxConcurrentScrapers
@@ -66,6 +63,7 @@ func NewWorkerPool(
 }
 
 func (wp *WorkerPool) SetGoogleAPIKey(apiKey string) {
+	wp.cfg.GooglePlacesAPIKey = apiKey
 	wp.placesClient = gmaps.NewPlacesAPIClient(apiKey)
 }
 
@@ -94,11 +92,17 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 	var leads []*model.BusinessLead
 	var err error
 
-	// 1. Extraction Phase
-	leads, err = wp.webClient.SearchPlaces(ctx, searchQuery, job.MaxResults)
-	if err != nil || len(leads) == 0 {
-		slog.Warn("Web scraper returned 0 or error, trying fallback generation", "error", err)
-		leads = generateTargetSampleLeads(job.Query, job.Location, job.Category, job.MaxResults)
+	// 1. Extraction Phase (Google Places API if key provided, else HTML scraper)
+	if wp.cfg.GooglePlacesAPIKey != "" {
+		slog.Info("Executing extraction via Google Places API (New)", "query", searchQuery)
+		leads, err = wp.placesClient.SearchPlacesText(ctx, searchQuery, job.MaxResults)
+	} else {
+		slog.Info("Executing extraction via Maps Web Client", "query", searchQuery)
+		leads, err = wp.webClient.SearchPlaces(ctx, searchQuery, job.MaxResults)
+	}
+
+	if err != nil {
+		slog.Error("Extraction phase failed", "job_id", job.ID, "error", err)
 	}
 
 	totalScraped := len(leads)
@@ -123,14 +127,19 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 		}
 	}
 
-	_ = wp.jobRepo.IncrementProgress(ctx, job.ID, totalScraped, 0, errorCount)
+	if totalScraped > 0 {
+		_ = wp.jobRepo.IncrementProgress(ctx, job.ID, totalScraped, 0, errorCount)
+	}
 
-	// 3. Contact & Social Enrichment Phase (if enabled)
+	// 3. Contact & Social Enrichment Phase (if enabled and website exists)
 	if job.EnrichContacts && len(leads) > 0 {
 		var wg sync.WaitGroup
 		var mu sync.Mutex
 
 		for _, lead := range leads {
+			if lead.Website == "" {
+				continue
+			}
 			wg.Add(1)
 			go func(l *model.BusinessLead) {
 				defer wg.Done()
@@ -152,7 +161,10 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 	// 4. Final Completion
 	finalStatus := model.JobStatusCompleted
 	errMsg := ""
-	if totalScraped == 0 {
+	if err != nil && totalScraped == 0 {
+		finalStatus = model.JobStatusFailed
+		errMsg = err.Error()
+	} else if totalScraped == 0 {
 		finalStatus = model.JobStatusFailed
 		errMsg = "No listings found matching query"
 	}
@@ -163,18 +175,7 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 
 func (wp *WorkerPool) enrichLead(ctx context.Context, lead *model.BusinessLead) (*enrichment.EnrichmentResult, error) {
 	if lead.Website == "" {
-		// Mock simulated enrichment for realistic demo when website isn't direct
-		domain := sanitizeKey(lead.Name) + ".com"
-		lead.Website = "https://www." + domain
-		emails := []string{"contact@" + domain, "info@" + domain}
-		phones := []string{lead.PrimaryPhone}
-		socials := enrichment.SocialLinks{
-			Facebook:  "https://facebook.com/" + sanitizeKey(lead.Name),
-			Instagram: "https://instagram.com/" + sanitizeKey(lead.Name),
-			LinkedIn:  "https://linkedin.com/company/" + sanitizeKey(lead.Name),
-		}
-		_ = wp.businessRepo.UpdateEnrichment(ctx, lead.ID, emails, phones, socials.Facebook, socials.Instagram, socials.LinkedIn, socials.Twitter, socials.YouTube, socials.TikTok, model.EnrichmentSuccess)
-		return &enrichment.EnrichmentResult{Emails: emails, Phones: phones, Socials: socials}, nil
+		return nil, nil
 	}
 
 	res, err := wp.crawler.EnrichWebsite(ctx, lead.Website)
@@ -198,56 +199,4 @@ func (wp *WorkerPool) enrichLead(ctx context.Context, lead *model.BusinessLead) 
 	)
 
 	return res, nil
-}
-
-func generateTargetSampleLeads(query, location, category string, count int) []*model.BusinessLead {
-	if count <= 0 || count > 50 {
-		count = 15
-	}
-	var leads []*model.BusinessLead
-	baseName := strings.Title(query)
-	cat := category
-	if cat == "" {
-		cat = baseName
-	}
-
-	for i := 1; i <= count; i++ {
-		name := fmt.Sprintf("%s %s #%d", baseName, "Center", i)
-		phone := fmt.Sprintf("(555) 019-%04d", 1000+i)
-		rating := 4.2 + float64(i%8)*0.1
-		reviews := 20 + i*14
-		website := fmt.Sprintf("https://www.%s-%d.com", sanitizeKey(query), i)
-
-		lead := &model.BusinessLead{
-			ID:               uuid.New(),
-			PlaceID:          fmt.Sprintf("mock_place_%s_%d", sanitizeKey(query), i),
-			Name:             name,
-			Category:         cat,
-			Address:          fmt.Sprintf("%d Main St, %s", 100*i, location),
-			Street:           fmt.Sprintf("%d Main St", 100*i),
-			City:             location,
-			State:            "US",
-			Country:          "USA",
-			Latitude:         37.7749 + float64(i)*0.005,
-			Longitude:        -122.4194 + float64(i)*0.005,
-			Rating:           rating,
-			ReviewCount:      reviews,
-			PriceLevel:       "$$",
-			Claimed:          true,
-			BusinessStatus:   "OPERATIONAL",
-			Website:          website,
-			PrimaryPhone:     phone,
-			EnrichmentStatus: model.EnrichmentNone,
-			GoogleMapsURL:    fmt.Sprintf("https://maps.google.com/?q=%s", name),
-		}
-		leads = append(leads, lead)
-	}
-
-	return leads
-}
-
-func sanitizeKey(s string) string {
-	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, " ", "-")
-	return s
 }

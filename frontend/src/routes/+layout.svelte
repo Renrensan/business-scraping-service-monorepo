@@ -14,11 +14,11 @@
   const isLoginPage = $derived(page.url.pathname === '/login');
 
   onMount(async () => {
-    if (!isLoginPage) {
-      const isAuthed = await auth.checkAuth();
-      if (!isAuthed && typeof window !== 'undefined') {
-        window.location.href = '/login';
-      }
+    const isAuthed = await auth.checkAuth();
+    if (!isAuthed && !isLoginPage && typeof window !== 'undefined') {
+      window.location.replace('/login');
+    } else if (isAuthed && isLoginPage && typeof window !== 'undefined') {
+      window.location.replace('/');
     }
   });
 </script>
@@ -27,7 +27,12 @@
 
 {#if isLoginPage}
   {@render children()}
-{:else}
+{:else if auth.isLoading}
+  <!-- Dark minimal loader preventing any flash of protected admin UI -->
+  <div class="min-h-screen bg-black flex items-center justify-center">
+    <div class="w-5 h-5 border-2 border-zinc-800 border-t-white rounded-full animate-spin"></div>
+  </div>
+{:else if auth.isAuthenticated}
   <div class="flex min-h-screen bg-black text-white font-mono">
     <Sidebar />
     <div class="flex-1 flex flex-col min-w-0 bg-black">

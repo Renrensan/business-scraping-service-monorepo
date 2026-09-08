@@ -29,9 +29,9 @@
         class="flex items-center gap-2.5 px-3 py-1.5 rounded-lg border border-zinc-800 bg-zinc-900/80 hover:bg-zinc-800 transition text-xs font-mono text-zinc-200 cursor-pointer"
       >
         <div class="w-5 h-5 rounded bg-zinc-800 text-white flex items-center justify-center font-bold text-[10px] border border-zinc-700">
-          {auth.user?.username?.charAt(0).toUpperCase() || 'A'}
+          {auth.user?.username ? auth.user.username.charAt(0).toUpperCase() : 'U'}
         </div>
-        <span class="hidden sm:inline">{auth.user?.username || 'admin'}</span>
+        <span class="hidden sm:inline">{auth.user?.username ?? ''}</span>
         <ShieldCheck class="w-3.5 h-3.5 text-emerald-400" />
       </button>
 

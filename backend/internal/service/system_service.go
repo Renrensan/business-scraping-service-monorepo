@@ -8,6 +8,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"business-scraping-service/backend/internal/config"
 	"business-scraping-service/backend/internal/engine"
+	"business-scraping-service/backend/internal/model"
 )
 
 type SystemService struct {
@@ -15,22 +16,25 @@ type SystemService struct {
 	dbPool      *pgxpool.Pool
 	redisClient *redis.Client
 	workerPool  *engine.WorkerPool
+	scheduler   *engine.Scheduler
 }
 
-func NewSystemService(cfg *config.Config, dbPool *pgxpool.Pool, redisClient *redis.Client, workerPool *engine.WorkerPool) *SystemService {
+func NewSystemService(cfg *config.Config, dbPool *pgxpool.Pool, redisClient *redis.Client, workerPool *engine.WorkerPool, scheduler *engine.Scheduler) *SystemService {
 	return &SystemService{
 		cfg:         cfg,
 		dbPool:      dbPool,
 		redisClient: redisClient,
 		workerPool:  workerPool,
+		scheduler:   scheduler,
 	}
 }
 
 type SystemSettingsResponse struct {
-	HasGoogleAPIKey     bool   `json:"has_google_api_key"`
-	GoogleAPIKeyMasked  string `json:"google_api_key_masked"`
-	DeduplicationMode   string `json:"deduplication_mode"`
-	MaxConcurrentWorkers int    `json:"max_concurrent_workers"`
+	HasGoogleAPIKey      bool                 `json:"has_google_api_key"`
+	GoogleAPIKeyMasked   string               `json:"google_api_key_masked"`
+	DeduplicationMode    string               `json:"deduplication_mode"`
+	MaxConcurrentWorkers int                  `json:"max_concurrent_workers"`
+	Schedule             *engine.ScheduleInfo `json:"schedule,omitempty"`
 }
 
 func (s *SystemService) GetSettings() *SystemSettingsResponse {
@@ -45,17 +49,47 @@ func (s *SystemService) GetSettings() *SystemSettingsResponse {
 		}
 	}
 
+	var sched *engine.ScheduleInfo
+	if s.scheduler != nil {
+		info := s.scheduler.GetScheduleInfo()
+		sched = &info
+	}
+
 	return &SystemSettingsResponse{
 		HasGoogleAPIKey:      hasKey,
 		GoogleAPIKeyMasked:   masked,
 		DeduplicationMode:    "SMART_MERGE_UPSERT",
 		MaxConcurrentWorkers: s.cfg.MaxConcurrentScrapers,
+		Schedule:             sched,
 	}
 }
 
 func (s *SystemService) UpdateGoogleAPIKey(apiKey string) {
 	s.cfg.GooglePlacesAPIKey = apiKey
 	s.workerPool.SetGoogleAPIKey(apiKey)
+}
+
+func (s *SystemService) GetSchedule() *engine.ScheduleInfo {
+	if s.scheduler == nil {
+		return nil
+	}
+	info := s.scheduler.GetScheduleInfo()
+	return &info
+}
+
+func (s *SystemService) UpdateSchedule(intervalHours int, autoEnabled bool, query, location string) *engine.ScheduleInfo {
+	if s.scheduler == nil {
+		return nil
+	}
+	info := s.scheduler.UpdateSchedule(intervalHours, autoEnabled, query, location)
+	return &info
+}
+
+func (s *SystemService) TriggerImmediateScrape(ctx context.Context, query, location string, maxResults int) (*model.ScrapeJob, error) {
+	if s.scheduler == nil {
+		return nil, nil
+	}
+	return s.scheduler.TriggerNow(ctx, query, location, maxResults)
 }
 
 type HealthResponse struct {

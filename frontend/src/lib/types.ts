@@ -69,4 +69,18 @@ export interface OverviewMetrics {
   active_jobs: number;
   completed_jobs: number;
   total_scraped_ever: number;
+  next_scrape_at?: string;
+  countdown_seconds?: number;
+  auto_schedule_enabled?: boolean;
+  schedule_interval?: string;
+}
+
+export interface ScheduleInfo {
+  next_run_at: string;
+  countdown_seconds: number;
+  last_run_at?: string;
+  interval_hours: number;
+  auto_enabled: boolean;
+  target_query: string;
+  target_location: string;
 }

@@ -1,13 +1,19 @@
 package model
 
+import "time"
+
 type OverviewMetrics struct {
-	TotalLeads       int64   `json:"total_leads"`
-	EnrichedLeads    int64   `json:"enriched_leads"`
-	EmailHitRate     float64 `json:"email_hit_rate"`
-	PhoneHitRate     float64 `json:"phone_hit_rate"`
-	ActiveJobs       int64   `json:"active_jobs"`
-	CompletedJobs    int64   `json:"completed_jobs"`
-	TotalScrapedEver int64   `json:"total_scraped_ever"`
+	TotalLeads             int64      `json:"total_leads"`
+	EnrichedLeads          int64      `json:"enriched_leads"`
+	EmailHitRate           float64    `json:"email_hit_rate"`
+	PhoneHitRate           float64    `json:"phone_hit_rate"`
+	ActiveJobs             int64      `json:"active_jobs"`
+	CompletedJobs          int64      `json:"completed_jobs"`
+	TotalScrapedEver       int64      `json:"total_scraped_ever"`
+	NextScrapeAt           *time.Time `json:"next_scrape_at,omitempty"`
+	CountdownSeconds       int64      `json:"countdown_seconds"`
+	AutoScheduleEnabled    bool       `json:"auto_schedule_enabled"`
+	ScheduleInterval       string     `json:"schedule_interval"`
 }
 
 type CategoryStat struct {

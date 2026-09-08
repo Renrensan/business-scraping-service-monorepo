@@ -1,13 +1,15 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import type { OverviewMetrics, ScrapeJob, BusinessLead } from '$lib/types';
   import StatCard from '$lib/components/StatCard.svelte';
   import Badge from '$lib/components/Badge.svelte';
   import NewJobModal from '$lib/components/NewJobModal.svelte';
+  import { toast } from 'svelte-sonner';
   import { 
     Building2, Mail, Phone, Zap, Plus, 
-    ArrowUpRight, RefreshCw, Layers, MapPin, Star
+    ArrowUpRight, RefreshCw, Layers, MapPin, Star,
+    Clock, Play, ShieldCheck, Sparkles
   } from 'lucide-svelte';
 
   let metrics = $state<OverviewMetrics>({
@@ -17,14 +19,39 @@
     phone_hit_rate: 0,
     active_jobs: 0,
     completed_jobs: 0,
-    total_scraped_ever: 0
+    total_scraped_ever: 0,
+    countdown_seconds: 0,
+    auto_schedule_enabled: true,
+    schedule_interval: 'Every 24h (Daily Batch)'
   });
 
   let recentJobs = $state<ScrapeJob[]>([]);
   let recentLeads = $state<BusinessLead[]>([]);
   let categoryStats = $state<{ category: string; count: number }[]>([]);
   let isLoading = $state(true);
+  let isTriggering = $state(false);
   let showNewJobModal = $state(false);
+
+  let countdownSeconds = $state(0);
+  let timerInterval: any = null;
+
+  function formatCountdown(sec: number): string {
+    if (sec <= 0) return '00:00:00';
+    const hours = Math.floor(sec / 3600);
+    const minutes = Math.floor((sec % 3600) / 60);
+    const seconds = sec % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  }
+
+  function formatNextRunTime(isoStr?: string): string {
+    if (!isoStr) return '00:00:00 UTC (Daily Batch)';
+    try {
+      const d = new Date(isoStr);
+      return d.toUTCString().replace('GMT', 'UTC');
+    } catch {
+      return isoStr;
+    }
+  }
 
   async function loadDashboardData() {
     try {
@@ -36,7 +63,12 @@
         api.get<{ category: string; count: number }[]>('/api/v1/metrics/categories', { limit: 6 })
       ]);
 
-      if (overviewData) metrics = overviewData;
+      if (overviewData) {
+        metrics = overviewData;
+        if (overviewData.countdown_seconds !== undefined) {
+          countdownSeconds = overviewData.countdown_seconds;
+        }
+      }
       if (jobsData?.items) recentJobs = jobsData.items;
       if (leadsData?.items) recentLeads = leadsData.items;
       if (Array.isArray(catData)) categoryStats = catData;
@@ -47,8 +79,40 @@
     }
   }
 
+  async function triggerImmediateScrape() {
+    try {
+      isTriggering = true;
+      await api.post('/api/v1/system/trigger-scrape', {
+        query: 'Specialty Coffee',
+        location: 'Seattle, WA',
+        max_results: 50
+      });
+      toast.success('Immediate ingestion job triggered!');
+      loadDashboardData();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to trigger ingestion');
+    } finally {
+      isTriggering = false;
+    }
+  }
+
   onMount(() => {
     loadDashboardData();
+
+    // 1-second local countdown ticker
+    timerInterval = setInterval(() => {
+      if (countdownSeconds > 0) {
+        countdownSeconds -= 1;
+      }
+    }, 1000);
+
+    // 30-second data sync
+    const syncInterval = setInterval(loadDashboardData, 30000);
+
+    return () => {
+      clearInterval(timerInterval);
+      clearInterval(syncInterval);
+    };
   });
 </script>
 
@@ -73,6 +137,48 @@
       >
         <Plus class="w-4 h-4" />
         <span>New Extraction Job</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- NEXT SCHEDULED SCRAPE LIVE TIMER BANNER -->
+  <div class="bg-zinc-950 border border-zinc-800/90 rounded-2xl p-5 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
+    <div class="space-y-2">
+      <div class="flex items-center gap-2">
+        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono bg-emerald-950/60 border border-emerald-800/80 text-emerald-400">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+          Ingestion Cycle Active ({metrics.schedule_interval || 'Every 24h'})
+        </span>
+        <span class="text-[10px] font-mono text-zinc-500">• Smart Deduplication Enabled</span>
+      </div>
+
+      <div>
+        <div class="text-xs font-mono text-zinc-400 uppercase tracking-wider">Next Scheduled Extraction Cycle</div>
+        <div class="text-3xl sm:text-4xl font-mono font-bold text-white tracking-wider mt-1 flex items-baseline gap-3">
+          <span>{formatCountdown(countdownSeconds)}</span>
+          <span class="text-xs font-mono font-normal text-zinc-500 uppercase tracking-normal">remaining</span>
+        </div>
+        <p class="text-[11px] font-mono text-zinc-500 mt-1">
+          Target Window: <span class="text-zinc-300">{formatNextRunTime(metrics.next_scrape_at)}</span>
+        </p>
+      </div>
+    </div>
+
+    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 shrink-0">
+      <button
+        onclick={triggerImmediateScrape}
+        disabled={isTriggering}
+        class="px-4 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900 hover:bg-zinc-800 text-white flex items-center justify-center gap-2 text-xs font-mono transition cursor-pointer disabled:opacity-50"
+      >
+        <Play class="w-3.5 h-3.5 fill-white text-white" />
+        <span>{isTriggering ? 'Triggering...' : 'Trigger Now'}</span>
+      </button>
+      <button
+        onclick={() => (showNewJobModal = true)}
+        class="px-4 py-2.5 rounded-xl bg-white hover:bg-zinc-200 text-black flex items-center justify-center gap-1.5 text-xs font-mono font-medium shadow-sm transition cursor-pointer"
+      >
+        <Sparkles class="w-3.5 h-3.5 text-black" />
+        <span>Manual Scrape</span>
       </button>
     </div>
   </div>

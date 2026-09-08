@@ -80,16 +80,18 @@ func main() {
 	// 7. Auto-bootstrap Super Admin if no admin exists
 	bootstrapSuperAdmin(ctx, adminRepo, cfg)
 
-	// 8. Initialize Extraction & Enrichment Worker Pool
+	// 8. Initialize Extraction & Enrichment Engine & Scheduler
 	workerPool := engine.NewWorkerPool(cfg, jobRepo, businessRepo, redisCli)
+	scheduler := engine.NewScheduler(workerPool, jobRepo, businessRepo)
+	scheduler.Start(ctx)
 
 	// 9. Initialize Services
 	authSvc := service.NewAuthService(adminRepo, sessionStore)
 	jobSvc := service.NewJobService(jobRepo, workerPool)
 	businessSvc := service.NewBusinessService(businessRepo)
 	exportSvc := service.NewExportService(businessRepo)
-	metricsSvc := service.NewMetricsService(businessRepo)
-	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool)
+	metricsSvc := service.NewMetricsService(businessRepo, scheduler)
+	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler)
 
 	// 10. Initialize Handlers
 	handlers := &api.Handlers{

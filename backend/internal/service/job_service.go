@@ -34,6 +34,14 @@ func (s *JobService) CreateJob(ctx context.Context, req model.CreateJobRequest) 
 		req.MaxResults = 1000
 	}
 
+	meta := make(map[string]interface{})
+	if req.Engine != "" {
+		meta["engine"] = req.Engine
+	}
+	if req.ApiKey != "" {
+		meta["api_key"] = req.ApiKey
+	}
+
 	job := &model.ScrapeJob{
 		ID:             uuid.New(),
 		Status:         model.JobStatusPending,
@@ -42,6 +50,7 @@ func (s *JobService) CreateJob(ctx context.Context, req model.CreateJobRequest) 
 		Category:       req.Category,
 		MaxResults:     req.MaxResults,
 		EnrichContacts: req.EnrichContacts,
+		Metadata:       meta,
 		CreatedAt:      time.Now().UTC(),
 		UpdatedAt:      time.Now().UTC(),
 	}

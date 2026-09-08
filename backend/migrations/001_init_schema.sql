@@ -81,3 +81,7 @@ CREATE INDEX IF NOT EXISTS idx_business_leads_rating ON business_leads(rating DE
 CREATE INDEX IF NOT EXISTS idx_business_leads_job_id ON business_leads(job_id);
 CREATE INDEX IF NOT EXISTS idx_business_leads_enrichment_status ON business_leads(enrichment_status);
 CREATE INDEX IF NOT EXISTS idx_business_leads_created_at ON business_leads(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_business_leads_lower_name_city ON business_leads(LOWER(name), LOWER(city));
+CREATE INDEX IF NOT EXISTS idx_business_leads_lower_website ON business_leads(LOWER(website));
+CREATE INDEX IF NOT EXISTS idx_business_leads_phone ON business_leads(primary_phone);
+

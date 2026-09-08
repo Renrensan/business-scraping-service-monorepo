@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"business-scraping-service/backend/internal/service"
@@ -22,4 +23,24 @@ func (h *SystemHandler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		status = http.StatusServiceUnavailable
 	}
 	utils.RespondJSON(w, status, health)
+}
+
+func (h *SystemHandler) GetSettings(w http.ResponseWriter, r *http.Request) {
+	settings := h.systemSvc.GetSettings()
+	utils.RespondJSON(w, http.StatusOK, settings)
+}
+
+type UpdateAPIKeyRequest struct {
+	ApiKey string `json:"api_key"`
+}
+
+func (h *SystemHandler) UpdateAPIKey(w http.ResponseWriter, r *http.Request) {
+	var req UpdateAPIKeyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+
+	h.systemSvc.UpdateGoogleAPIKey(req.ApiKey)
+	utils.RespondSuccess(w, http.StatusOK, "API Key updated successfully", h.systemSvc.GetSettings())
 }

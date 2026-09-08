@@ -25,7 +25,7 @@ func ParseRawPlaceData(data map[string]interface{}) *model.BusinessLead {
 	}
 
 	if id, ok := data["id"].(string); ok {
-		lead.PlaceID = id
+		lead.PlaceID = strings.TrimPrefix(id, "places/")
 	}
 	if name, ok := data["name"].(string); ok {
 		lead.Name = name

@@ -41,4 +41,6 @@ type CreateJobRequest struct {
 	Category       string `json:"category"`
 	MaxResults     int    `json:"max_results"`
 	EnrichContacts bool   `json:"enrich_contacts"`
+	Engine         string `json:"engine,omitempty"`
+	ApiKey         string `json:"api_key,omitempty"`
 }

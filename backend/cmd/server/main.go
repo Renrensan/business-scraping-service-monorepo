@@ -89,7 +89,7 @@ func main() {
 	businessSvc := service.NewBusinessService(businessRepo)
 	exportSvc := service.NewExportService(businessRepo)
 	metricsSvc := service.NewMetricsService(businessRepo)
-	systemSvc := service.NewSystemService(cfg, dbPool, redisCli)
+	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool)
 
 	// 10. Initialize Handlers
 	handlers := &api.Handlers{

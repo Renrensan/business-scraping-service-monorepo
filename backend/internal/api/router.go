@@ -78,6 +78,10 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 
 			// Export
 			protected.Get("/export/csv", h.Export.ExportCSV)
+
+			// System Settings
+			protected.Get("/system/settings", h.System.GetSettings)
+			protected.Post("/system/api-key", h.System.UpdateAPIKey)
 		})
 	})
 

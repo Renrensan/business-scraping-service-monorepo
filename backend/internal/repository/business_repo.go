@@ -23,14 +23,166 @@ func NewBusinessRepository(db *pgxpool.Pool) *BusinessRepository {
 }
 
 func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLead) error {
-	if lead.ID == uuid.Nil {
-		lead.ID = uuid.New()
-	}
 	now := time.Now().UTC()
 	lead.LastScrapedAt = now
 	lead.UpdatedAt = now
 	if lead.CreatedAt.IsZero() {
 		lead.CreatedAt = now
+	}
+
+	cleanPlaceID := strings.TrimSpace(lead.PlaceID)
+	cleanName := strings.TrimSpace(lead.Name)
+	cleanCity := strings.TrimSpace(lead.City)
+	cleanWebsite := strings.TrimSpace(lead.Website)
+	cleanPhone := strings.TrimSpace(lead.PrimaryPhone)
+
+	// Step 1: Check for existing matching lead by place_id, website domain, phone, or name+city
+	findQuery := `
+		SELECT id, place_id, cid, name, category, subcategories, address, street, city, state, 
+		       postal_code, country, latitude, longitude, rating, review_count, price_level, 
+		       claimed, business_status, website, primary_phone, emails, phones, facebook_url, 
+		       instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url, google_maps_url, 
+		       opening_hours, photos, enrichment_status, created_at
+		FROM business_leads
+		WHERE ($1 != '' AND place_id = $1)
+		   OR ($2 != '' AND (website = $2 OR website ILIKE '%' || $2 || '%'))
+		   OR ($3 != '' AND primary_phone = $3)
+		   OR ($4 != '' AND $5 != '' AND LOWER(TRIM(name)) = LOWER(TRIM($4)) AND LOWER(TRIM(city)) = LOWER(TRIM($5)))
+		LIMIT 1
+	`
+
+	var existing model.BusinessLead
+	var subcatBytes, emailsBytes, phonesBytes, hoursBytes, photosBytes []byte
+
+	err := r.db.QueryRow(ctx, findQuery, cleanPlaceID, cleanWebsite, cleanPhone, cleanName, cleanCity).Scan(
+		&existing.ID, &existing.PlaceID, &existing.CID, &existing.Name, &existing.Category, &subcatBytes,
+		&existing.Address, &existing.Street, &existing.City, &existing.State, &existing.PostalCode,
+		&existing.Country, &existing.Latitude, &existing.Longitude, &existing.Rating, &existing.ReviewCount,
+		&existing.PriceLevel, &existing.Claimed, &existing.BusinessStatus, &existing.Website,
+		&existing.PrimaryPhone, &emailsBytes, &phonesBytes, &existing.FacebookURL, &existing.InstagramURL,
+		&existing.LinkedinURL, &existing.TwitterURL, &existing.YoutubeURL, &existing.TiktokURL,
+		&existing.GoogleMapsURL, &hoursBytes, &photosBytes, &existing.EnrichmentStatus, &existing.CreatedAt,
+	)
+
+	if err == nil {
+		// Existing record found! Update and merge to prevent duplicates.
+		lead.ID = existing.ID
+		lead.CreatedAt = existing.CreatedAt
+
+		var existingEmails, existingPhones, existingSubcats []string
+		_ = json.Unmarshal(emailsBytes, &existingEmails)
+		_ = json.Unmarshal(phonesBytes, &existingPhones)
+		_ = json.Unmarshal(subcatBytes, &existingSubcats)
+
+		lead.Emails = mergeUniqueStrings(existingEmails, lead.Emails)
+		lead.Phones = mergeUniqueStrings(existingPhones, lead.Phones)
+		lead.Subcategories = mergeUniqueStrings(existingSubcats, lead.Subcategories)
+
+		// Preserve non-empty fields if new one is blank
+		if lead.PlaceID == "" {
+			lead.PlaceID = existing.PlaceID
+		}
+		if lead.CID == "" {
+			lead.CID = existing.CID
+		}
+		if lead.Website == "" {
+			lead.Website = existing.Website
+		}
+		if lead.PrimaryPhone == "" {
+			lead.PrimaryPhone = existing.PrimaryPhone
+		}
+		if lead.FacebookURL == "" {
+			lead.FacebookURL = existing.FacebookURL
+		}
+		if lead.InstagramURL == "" {
+			lead.InstagramURL = existing.InstagramURL
+		}
+		if lead.LinkedinURL == "" {
+			lead.LinkedinURL = existing.LinkedinURL
+		}
+		if lead.TwitterURL == "" {
+			lead.TwitterURL = existing.TwitterURL
+		}
+		if lead.YoutubeURL == "" {
+			lead.YoutubeURL = existing.YoutubeURL
+		}
+		if lead.TiktokURL == "" {
+			lead.TiktokURL = existing.TiktokURL
+		}
+		if lead.GoogleMapsURL == "" {
+			lead.GoogleMapsURL = existing.GoogleMapsURL
+		}
+		if lead.EnrichmentStatus == model.EnrichmentNone && existing.EnrichmentStatus != model.EnrichmentNone {
+			lead.EnrichmentStatus = existing.EnrichmentStatus
+		}
+
+		subcatJSON, _ := json.Marshal(lead.Subcategories)
+		emailsJSON, _ := json.Marshal(lead.Emails)
+		phonesJSON, _ := json.Marshal(lead.Phones)
+		hoursJSON, _ := json.Marshal(lead.OpeningHours)
+		if len(hoursJSON) <= 2 && len(hoursBytes) > 2 {
+			hoursJSON = hoursBytes
+		}
+		photosJSON, _ := json.Marshal(lead.Photos)
+		if len(photosJSON) <= 2 && len(photosBytes) > 2 {
+			photosJSON = photosBytes
+		}
+
+		updateQuery := `
+			UPDATE business_leads SET
+				job_id = COALESCE($2, job_id),
+				place_id = $3,
+				cid = $4,
+				name = $5,
+				category = $6,
+				subcategories = $7,
+				address = $8,
+				street = $9,
+				city = $10,
+				state = $11,
+				postal_code = $12,
+				country = $13,
+				latitude = $14,
+				longitude = $15,
+				rating = $16,
+				review_count = $17,
+				price_level = $18,
+				claimed = $19,
+				business_status = $20,
+				website = $21,
+				primary_phone = $22,
+				emails = $23,
+				phones = $24,
+				facebook_url = $25,
+				instagram_url = $26,
+				linkedin_url = $27,
+				twitter_url = $28,
+				youtube_url = $29,
+				tiktok_url = $30,
+				google_maps_url = $31,
+				opening_hours = $32,
+				photos = $33,
+				enrichment_status = $34,
+				last_scraped_at = $35,
+				updated_at = $36
+			WHERE id = $1
+		`
+
+		_, updateErr := r.db.Exec(ctx, updateQuery,
+			lead.ID, lead.JobID, lead.PlaceID, lead.CID, lead.Name, lead.Category, subcatJSON, lead.Address, lead.Street,
+			lead.City, lead.State, lead.PostalCode, lead.Country, lead.Latitude, lead.Longitude, lead.Rating, lead.ReviewCount,
+			lead.PriceLevel, lead.Claimed, lead.BusinessStatus, lead.Website, lead.PrimaryPhone, emailsJSON, phonesJSON,
+			lead.FacebookURL, lead.InstagramURL, lead.LinkedinURL, lead.TwitterURL, lead.YoutubeURL, lead.TiktokURL,
+			lead.GoogleMapsURL, hoursJSON, photosJSON, lead.EnrichmentStatus, lead.LastScrapedAt, lead.UpdatedAt,
+		)
+		return updateErr
+	} else if !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+
+	// Step 2: No existing match found -> Insert new lead
+	if lead.ID == uuid.Nil {
+		lead.ID = uuid.New()
 	}
 
 	subcatJSON, _ := json.Marshal(lead.Subcategories)
@@ -54,7 +206,7 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		photosJSON = []byte("[]")
 	}
 
-	query := `
+	insertQuery := `
 		INSERT INTO business_leads (
 			id, job_id, place_id, cid, name, category, subcategories, address, street,
 			city, state, postal_code, country, latitude, longitude, rating, review_count,
@@ -98,7 +250,7 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 			updated_at = EXCLUDED.updated_at
 	`
 
-	_, err := r.db.Exec(ctx, query,
+	_, err = r.db.Exec(ctx, insertQuery,
 		lead.ID, lead.JobID, lead.PlaceID, lead.CID, lead.Name, lead.Category, subcatJSON, lead.Address, lead.Street,
 		lead.City, lead.State, lead.PostalCode, lead.Country, lead.Latitude, lead.Longitude, lead.Rating, lead.ReviewCount,
 		lead.PriceLevel, lead.Claimed, lead.BusinessStatus, lead.Website, lead.PrimaryPhone, emailsJSON, phonesJSON,
@@ -107,6 +259,19 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		lead.LastEnrichedAt, lead.CreatedAt, lead.UpdatedAt,
 	)
 	return err
+}
+
+func mergeUniqueStrings(a, b []string) []string {
+	seen := make(map[string]bool)
+	var res []string
+	for _, s := range append(a, b...) {
+		trimmed := strings.TrimSpace(s)
+		if trimmed != "" && !seen[trimmed] {
+			seen[trimmed] = true
+			res = append(res, trimmed)
+		}
+	}
+	return res
 }
 
 func (r *BusinessRepository) UpdateEnrichment(ctx context.Context, id uuid.UUID, emails, phones []string, fb, ig, li, tw, yt, tt string, status model.EnrichmentStatus) error {

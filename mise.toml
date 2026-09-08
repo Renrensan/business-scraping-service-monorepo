@@ -1,0 +1,61 @@
+[tools]
+go = "1.23.6"
+node = "22.22.1"
+pnpm = "11.13.0"
+
+[env]
+_.file = ".env"
+
+# DOCKER PREREQUISITE
+[tasks.check-docker]
+run = "docker info >/dev/null 2>&1 || (echo 'Docker is not running' && exit 1)"
+
+# Local DB & Redis Run (using Docker)
+[tasks.db-run-dev]
+description = "Run Postgres DB and Redis using Docker from docker-compose"
+run = "docker start bizscrape_pgdb bizscrape_redis 2>/dev/null || docker-compose up -d postgresdb redis"
+depends = ["check-docker"]
+
+[tasks.db-stop]
+description = "Stop Postgres DB and Redis containers"
+run = "docker-compose down"
+
+# DEV TASKS
+[tasks.dev-backend]
+description = "Run Go backend API server in dev mode"
+run = "cd backend && go run cmd/server/main.go"
+depends = ["db-run-dev"]
+
+[tasks.dev-frontend]
+description = "Run Svelte 5 frontend app in dev mode"
+run = "cd frontend && pnpm dev"
+
+[tasks.dev]
+description = "Run both backend and frontend concurrently in development mode"
+depends = ["dev-backend", "dev-frontend"]
+
+# BUILD TASKS (LOCAL)
+[tasks.build-backend]
+description = "Compile Go backend binary"
+run = "cd backend && go build -o bin/server cmd/server/main.go"
+
+[tasks.build-frontend]
+description = "Build Svelte 5 production bundle"
+run = "cd frontend && pnpm build"
+
+[tasks.build]
+description = "Build both backend and frontend"
+depends = ["build-backend", "build-frontend"]
+
+# TEST TASKS
+[tasks.test-backend]
+description = "Run Go backend unit test suite"
+run = "cd backend && go test ./..."
+
+[tasks.test-frontend]
+description = "Run SvelteKit typecheck and diagnostics"
+run = "cd frontend && pnpm check"
+
+[tasks.test]
+description = "Run all backend and frontend tests"
+depends = ["test-backend", "test-frontend"]

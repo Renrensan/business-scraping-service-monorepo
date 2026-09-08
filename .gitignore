@@ -1,0 +1,22 @@
+# Operating System
+.DS_Store
+Thumbs.db
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+bin/
+build/
+dist/
+.svelte-kit/
+
+# Environment
+.env
+!.env.example
+
+# Logs & temp
+*.log
+tmp/
+scratch/

@@ -60,8 +60,9 @@
 
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-6 space-y-4 text-xs">
         <div>
-          <label class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">Current Password</label>
+          <label for="modal-current-password" class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">Current Password</label>
           <input
+            id="modal-current-password"
             type="password"
             bind:value={currentPassword}
             required
@@ -70,8 +71,9 @@
         </div>
 
         <div>
-          <label class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">New Password</label>
+          <label for="modal-new-password" class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">New Password</label>
           <input
+            id="modal-new-password"
             type="password"
             bind:value={newPassword}
             required
@@ -80,8 +82,9 @@
         </div>
 
         <div>
-          <label class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">Confirm New Password</label>
+          <label for="modal-confirm-password" class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">Confirm New Password</label>
           <input
+            id="modal-confirm-password"
             type="password"
             bind:value={confirmPassword}
             required

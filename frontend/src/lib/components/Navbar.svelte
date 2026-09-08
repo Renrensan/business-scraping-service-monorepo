@@ -16,11 +16,8 @@
     >
       <Menu class="w-5 h-5" />
     </button>
-    <div class="hidden sm:flex items-center gap-2 text-xs font-mono text-zinc-400">
-      <span class="inline-block w-2 h-2 rounded-full bg-emerald-400"></span>
-      <span class="text-zinc-300">SYSTEM ONLINE</span>
-      <span class="text-zinc-600">•</span>
-      <span class="text-zinc-500">INGESTION ENGINE ACTIVE</span>
+    <div class="hidden sm:flex items-center gap-2 text-xs font-mono text-zinc-500">
+      <span>Verified Lead Lake</span>
     </div>
   </div>
 

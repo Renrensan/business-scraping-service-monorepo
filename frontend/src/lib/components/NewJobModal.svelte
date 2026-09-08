@@ -71,10 +71,11 @@
 
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-6 space-y-4 text-xs font-mono">
         <div>
-          <label class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">Target Query / Keyword *</label>
+          <label for="job-query" class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">Target Query / Keyword *</label>
           <div class="relative">
             <Search class="w-4 h-4 absolute left-3 top-2.5 text-zinc-500" />
             <input
+              id="job-query"
               type="text"
               bind:value={query}
               placeholder="e.g. Specialty Coffee, Dental Clinic, Law Firm"
@@ -86,10 +87,11 @@
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
           <div>
-            <label class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">City / Location *</label>
+            <label for="job-location" class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">City / Location *</label>
             <div class="relative">
               <MapPin class="w-4 h-4 absolute left-3 top-2.5 text-zinc-500" />
               <input
+                id="job-location"
                 type="text"
                 bind:value={location}
                 placeholder="e.g. Seattle, WA"
@@ -100,10 +102,11 @@
           </div>
 
           <div>
-            <label class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">Category (Optional)</label>
+            <label for="job-category" class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">Category (Optional)</label>
             <div class="relative">
               <Layers class="w-4 h-4 absolute left-3 top-2.5 text-zinc-500" />
               <input
+                id="job-category"
                 type="text"
                 bind:value={category}
                 placeholder="e.g. Cafe"
@@ -115,10 +118,11 @@
 
         <div>
           <div class="flex justify-between items-center mb-1.5 font-mono">
-            <label class="text-zinc-400 uppercase text-[10px] tracking-wider">Max Results Target</label>
+            <label for="job-max-results" class="text-zinc-400 uppercase text-[10px] tracking-wider">Max Results Target</label>
             <span class="text-white font-mono font-bold">{maxResults} listings</span>
           </div>
           <input
+            id="job-max-results"
             type="range"
             min="10"
             max="300"

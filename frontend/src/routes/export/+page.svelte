@@ -40,8 +40,9 @@
 
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs font-mono">
       <div>
-        <label class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">Search Query Filter</label>
+        <label for="export-search" class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">Search Query Filter</label>
         <input
+          id="export-search"
           type="text"
           bind:value={search}
           placeholder="Filter by keyword..."
@@ -50,8 +51,9 @@
       </div>
 
       <div>
-        <label class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">Category Filter</label>
+        <label for="export-category" class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">Category Filter</label>
         <input
+          id="export-category"
           type="text"
           bind:value={category}
           placeholder="e.g. Coffee Shop"
@@ -60,8 +62,9 @@
       </div>
 
       <div>
-        <label class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">City / Region Filter</label>
+        <label for="export-city" class="block text-zinc-400 mb-1.5 uppercase text-[10px] tracking-wider">City / Region Filter</label>
         <input
+          id="export-city"
           type="text"
           bind:value={city}
           placeholder="e.g. Seattle"

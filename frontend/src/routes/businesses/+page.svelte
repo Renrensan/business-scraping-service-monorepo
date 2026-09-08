@@ -84,22 +84,22 @@
 
 <div class="space-y-5">
   <!-- Header -->
-  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-zinc-900">
     <div>
-      <h1 class="text-xl font-bold text-white tracking-tight">Leads Explorer</h1>
-      <p class="text-xs text-slate-400 mt-1">Search, filter, and inspect verified Google Maps business listings ({totalCount.toLocaleString()} leads)</p>
+      <h1 class="text-2xl font-display font-light text-white tracking-[-0.04em]">Leads Database</h1>
+      <p class="text-xs font-mono text-zinc-500 mt-0.5">High-speed verified business intelligence & enriched contacts ({totalCount.toLocaleString()} leads)</p>
     </div>
     <div class="flex items-center gap-2.5">
       <button
         onclick={() => (showExportModal = true)}
-        class="px-3.5 py-2 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-1.5 text-xs font-medium transition cursor-pointer"
+        class="px-3.5 py-2 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-900 hover:text-white flex items-center gap-1.5 text-xs font-mono transition cursor-pointer"
       >
         <Download class="w-3.5 h-3.5" />
         <span>Export CSV</span>
       </button>
       <button
         onclick={() => (showNewJobModal = true)}
-        class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 text-xs font-medium shadow-md shadow-indigo-600/20 transition cursor-pointer"
+        class="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-black flex items-center gap-1.5 text-xs font-mono font-medium shadow-sm transition cursor-pointer"
       >
         <Plus class="w-4 h-4" />
         <span>New Extraction</span>
@@ -108,17 +108,17 @@
   </div>
 
   <!-- Filter Bar -->
-  <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-sm space-y-3">
+  <div class="bg-zinc-950 border border-zinc-800/90 rounded-2xl p-4 shadow-sm space-y-3">
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
       <!-- Search Input -->
       <div class="relative">
-        <Search class="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+        <Search class="w-4 h-4 absolute left-3 top-2.5 text-zinc-500" />
         <input
           type="text"
           bind:value={search}
           oninput={handleSearchInput}
-          placeholder="Search business name, phone, url..."
-          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-white placeholder:text-slate-400 focus:outline-hidden focus:border-indigo-500 text-xs"
+          placeholder="Search name, phone, domain..."
+          class="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-white placeholder:text-zinc-600 focus:outline-hidden focus:border-zinc-400 font-mono text-xs"
         />
       </div>
 
@@ -126,7 +126,7 @@
       <select
         bind:value={selectedCategory}
         onchange={handleSearchInput}
-        class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-hidden focus:border-indigo-500 text-xs"
+        class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-zinc-200 focus:outline-hidden focus:border-zinc-400 font-mono text-xs cursor-pointer"
       >
         {#each CATEGORIES as cat}
           <option value={cat}>{cat}</option>
@@ -135,13 +135,13 @@
 
       <!-- City Input -->
       <div class="relative">
-        <MapPin class="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+        <MapPin class="w-4 h-4 absolute left-3 top-2.5 text-zinc-500" />
         <input
           type="text"
           bind:value={city}
           oninput={handleSearchInput}
           placeholder="Filter by city..."
-          class="w-full bg-slate-800/80 border border-slate-700 rounded-xl pl-9 pr-3 py-2 text-white placeholder:text-slate-400 focus:outline-hidden focus:border-indigo-500 text-xs"
+          class="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-9 pr-3 py-2 text-white placeholder:text-zinc-600 focus:outline-hidden focus:border-zinc-400 font-mono text-xs"
         />
       </div>
 
@@ -149,7 +149,7 @@
       <select
         bind:value={minRating}
         onchange={handleSearchInput}
-        class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2 text-slate-200 focus:outline-hidden focus:border-indigo-500 text-xs"
+        class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-zinc-200 focus:outline-hidden focus:border-zinc-400 font-mono text-xs cursor-pointer"
       >
         <option value="">All Ratings</option>
         <option value="4.5">★ 4.5 and above</option>
@@ -159,7 +159,7 @@
     </div>
 
     <!-- Contact Checkbox Filters -->
-    <div class="flex flex-wrap items-center gap-4 pt-2 border-t border-slate-800/80 text-xs text-slate-400">
+    <div class="flex flex-wrap items-center gap-4 pt-2 border-t border-zinc-900 text-xs font-mono text-zinc-400">
       <label class="flex items-center gap-1.5 cursor-pointer">
         <input
           type="checkbox"
@@ -168,7 +168,7 @@
             hasEmail = e.currentTarget.checked ? true : undefined;
             handleSearchInput();
           }}
-          class="rounded accent-indigo-600 bg-slate-800"
+          class="rounded accent-white bg-zinc-900"
         />
         <span>Has Verified Email</span>
       </label>
@@ -181,91 +181,91 @@
             hasPhone = e.currentTarget.checked ? true : undefined;
             handleSearchInput();
           }}
-          class="rounded accent-indigo-600 bg-slate-800"
+          class="rounded accent-white bg-zinc-900"
         />
         <span>Has Primary Phone</span>
       </label>
 
-      <div class="ml-auto text-[11px] text-slate-400">
+      <div class="ml-auto text-[11px] font-mono text-zinc-500">
         Showing {leads.length} of {totalCount} records
       </div>
     </div>
   </div>
 
   <!-- Data Table -->
-  <div class="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+  <div class="bg-zinc-950 border border-zinc-800/90 rounded-2xl overflow-hidden shadow-sm">
     <div class="overflow-x-auto">
-      <table class="w-full text-left text-xs">
-        <thead class="bg-slate-950/60 border-b border-slate-800 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+      <table class="w-full text-left text-xs font-mono">
+        <thead class="bg-black border-b border-zinc-800 text-[10px] uppercase tracking-wider text-zinc-500 font-medium">
           <tr>
             <th class="px-5 py-3.5">Business Name</th>
             <th class="px-4 py-3.5">Category</th>
             <th class="px-4 py-3.5">Location</th>
             <th class="px-4 py-3.5">Rating</th>
-            <th class="px-4 py-3.5">Contact & Socials</th>
-            <th class="px-4 py-3.5 text-right">Actions</th>
+            <th class="px-4 py-3.5">Discovered Contacts</th>
+            <th class="px-4 py-3.5 text-right">Details</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-800/60 text-slate-300">
+        <tbody class="divide-y divide-zinc-900 text-zinc-300">
           {#if isLoading}
             <tr>
-              <td colspan="6" class="px-5 py-16 text-center text-slate-400">
-                <RefreshCw class="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-400" />
-                <span>Loading leads from database...</span>
+              <td colspan="6" class="px-5 py-16 text-center text-zinc-500">
+                <RefreshCw class="w-5 h-5 animate-spin mx-auto mb-2 text-zinc-400" />
+                <span>Loading leads from PostgreSQL...</span>
               </td>
             </tr>
           {:else if leads.length === 0}
             <tr>
-              <td colspan="6" class="px-5 py-16 text-center text-slate-400">
-                No business listings match your query. Try broadening your filters!
+              <td colspan="6" class="px-5 py-16 text-center text-zinc-500">
+                No business listings match your query. Try adjusting your search filters.
               </td>
             </tr>
           {:else}
             {#each leads as lead}
-              <tr class="hover:bg-slate-800/40 transition">
+              <tr class="hover:bg-zinc-900/40 transition">
                 <td class="px-5 py-3.5 font-medium text-white max-w-xs truncate">
                   <button 
                     onclick={() => openDetail(lead)}
-                    class="hover:text-indigo-400 text-left truncate font-semibold block transition cursor-pointer"
+                    class="hover:text-zinc-300 text-left truncate font-semibold block transition cursor-pointer"
                   >
                     {lead.name}
                   </button>
-                  <div class="text-[11px] text-slate-400 font-normal truncate">
+                  <div class="text-[11px] text-zinc-500 font-normal truncate">
                     {lead.street || lead.address}
                   </div>
                 </td>
 
                 <td class="px-4 py-3.5 whitespace-nowrap">
-                  <Badge variant="purple">{lead.category}</Badge>
+                  <Badge variant="default">{lead.category}</Badge>
                 </td>
 
-                <td class="px-4 py-3.5 whitespace-nowrap text-slate-400">
+                <td class="px-4 py-3.5 whitespace-nowrap text-zinc-400">
                   {lead.city || 'N/A'}{lead.state ? `, ${lead.state}` : ''}
                 </td>
 
                 <td class="px-4 py-3.5 whitespace-nowrap">
-                  <div class="flex items-center gap-1 text-amber-400 font-medium">
-                    <Star class="w-3.5 h-3.5 fill-amber-400" />
+                  <div class="flex items-center gap-1 text-white font-medium">
+                    <Star class="w-3.5 h-3.5 fill-white text-white" />
                     <span>{lead.rating.toFixed(1)}</span>
-                    <span class="text-[10px] text-slate-400">({lead.review_count})</span>
+                    <span class="text-[10px] text-zinc-500">({lead.review_count})</span>
                   </div>
                 </td>
 
                 <td class="px-4 py-3.5">
                   <div class="flex items-center gap-1.5 flex-wrap">
                     {#if lead.emails && lead.emails.length > 0}
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-mono">
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-900 text-emerald-400 border border-zinc-800 text-[10px] font-mono">
                         <Mail class="w-2.5 h-2.5" />
                         {lead.emails.length}
                       </span>
                     {/if}
                     {#if lead.primary_phone}
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-mono">
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-900 text-zinc-300 border border-zinc-800 text-[10px] font-mono">
                         <Phone class="w-2.5 h-2.5" />
                       </span>
                     {/if}
                     {#if lead.website}
-                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700 text-[10px]">
+                      <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zinc-900 text-zinc-400 border border-zinc-800 text-[10px]">
                         <Globe class="w-2.5 h-2.5" />
                       </span>
                     {/if}
@@ -275,7 +275,7 @@
                 <td class="px-4 py-3.5 text-right whitespace-nowrap">
                   <button
                     onclick={() => openDetail(lead)}
-                    class="p-1.5 rounded-lg border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 transition cursor-pointer"
+                    class="p-1.5 rounded-lg border border-zinc-800 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white transition cursor-pointer"
                     title="View Profile Details"
                   >
                     <Eye class="w-3.5 h-3.5" />

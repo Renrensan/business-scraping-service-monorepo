@@ -28,9 +28,9 @@
 {#if isLoginPage}
   {@render children()}
 {:else}
-  <div class="flex min-h-screen bg-slate-950 text-slate-100">
+  <div class="flex min-h-screen bg-black text-white font-mono">
     <Sidebar />
-    <div class="flex-1 flex flex-col min-w-0">
+    <div class="flex-1 flex flex-col min-w-0 bg-black">
       <Navbar onOpenPasswordModal={() => (showPasswordModal = true)} />
       <main class="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
         {@render children()}
@@ -43,3 +43,4 @@
     onClose={() => (showPasswordModal = false)}
   />
 {/if}
+

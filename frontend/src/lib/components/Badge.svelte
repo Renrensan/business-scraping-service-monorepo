@@ -3,20 +3,22 @@
     variant = 'default',
     children
   }: {
-    variant?: 'default' | 'success' | 'warning' | 'error' | 'info' | 'purple';
+    variant?: 'default' | 'success' | 'warning' | 'error' | 'info' | 'purple' | 'mono';
     children: any;
   } = $props();
 
   const variantClasses = {
-    default: 'bg-slate-800 text-slate-300 border-slate-700',
-    success: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
-    warning: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    error: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
-    info: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    purple: 'bg-purple-500/10 text-purple-400 border-purple-500/20'
+    default: 'bg-zinc-900 text-zinc-300 border-zinc-800',
+    mono: 'bg-zinc-900 text-white border-zinc-700 font-semibold',
+    success: 'bg-zinc-900 text-emerald-400 border-zinc-800',
+    warning: 'bg-zinc-900 text-amber-400 border-zinc-800',
+    error: 'bg-zinc-900 text-rose-400 border-zinc-800',
+    info: 'bg-zinc-900 text-zinc-300 border-zinc-800',
+    purple: 'bg-zinc-900 text-zinc-200 border-zinc-800'
   };
 </script>
 
-<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-medium border {variantClasses[variant]}">
+<span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md text-[11px] font-mono border {variantClasses[variant]}">
   {@render children()}
 </span>
+

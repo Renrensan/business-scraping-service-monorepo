@@ -46,61 +46,61 @@
 </script>
 
 {#if isOpen}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-xs">
-    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl">
-      <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
+    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl font-mono">
+      <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
         <div class="flex items-center gap-2">
-          <Key class="w-4 h-4 text-indigo-400" />
-          <h2 class="text-sm font-bold text-white">Change Admin Password</h2>
+          <Key class="w-4 h-4 text-zinc-400" />
+          <h2 class="text-base font-display font-light text-white">Change Password</h2>
         </div>
-        <button onclick={onClose} class="text-slate-400 hover:text-white">
+        <button onclick={onClose} class="text-zinc-500 hover:text-white transition cursor-pointer">
           <X class="w-4 h-4" />
         </button>
       </div>
 
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-6 space-y-4 text-xs">
         <div>
-          <label class="block font-medium text-slate-300 mb-1">Current Password</label>
+          <label class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">Current Password</label>
           <input
             type="password"
             bind:value={currentPassword}
             required
-            class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white text-xs focus:outline-hidden focus:border-indigo-500"
+            class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-white text-xs focus:outline-hidden focus:border-zinc-400"
           />
         </div>
 
         <div>
-          <label class="block font-medium text-slate-300 mb-1">New Password</label>
+          <label class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">New Password</label>
           <input
             type="password"
             bind:value={newPassword}
             required
-            class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white text-xs focus:outline-hidden focus:border-indigo-500"
+            class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-white text-xs focus:outline-hidden focus:border-zinc-400"
           />
         </div>
 
         <div>
-          <label class="block font-medium text-slate-300 mb-1">Confirm New Password</label>
+          <label class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">Confirm New Password</label>
           <input
             type="password"
             bind:value={confirmPassword}
             required
-            class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2 text-white text-xs focus:outline-hidden focus:border-indigo-500"
+            class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-white text-xs focus:outline-hidden focus:border-zinc-400"
           />
         </div>
 
-        <div class="flex justify-end gap-2 pt-2 border-t border-slate-800">
+        <div class="flex justify-end gap-2 pt-2 border-t border-zinc-800">
           <button
             type="button"
             onclick={onClose}
-            class="px-4 py-2 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700"
+            class="px-4 py-2 rounded-xl border border-zinc-800 bg-zinc-900 text-zinc-300 hover:bg-zinc-800 hover:text-white transition cursor-pointer"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={isSubmitting}
-            class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium"
+            class="px-5 py-2 rounded-xl bg-white hover:bg-zinc-200 text-black font-semibold transition cursor-pointer"
           >
             {isSubmitting ? 'Updating...' : 'Update Password'}
           </button>
@@ -109,3 +109,4 @@
     </div>
   </div>
 {/if}
+

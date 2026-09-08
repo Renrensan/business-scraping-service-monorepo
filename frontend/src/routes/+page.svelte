@@ -54,25 +54,25 @@
 
 <div class="space-y-6">
   <!-- Header & Actions -->
-  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-zinc-900">
     <div>
-      <h1 class="text-xl font-bold text-white tracking-tight">Overview & Analytics</h1>
-      <p class="text-xs text-slate-400 mt-1">Real-time throughput, lead enrichment rates, and batch ingestion status</p>
+      <h1 class="text-2xl font-display font-light text-white tracking-[-0.04em]">Overview & Metrics</h1>
+      <p class="text-xs font-mono text-zinc-500 mt-0.5">Real-time throughput, contact enrichment rates, and local database ingestion</p>
     </div>
     <div class="flex items-center gap-2.5">
       <button
         onclick={loadDashboardData}
-        class="px-3.5 py-2 rounded-xl border border-slate-700 bg-slate-800 text-slate-300 hover:bg-slate-700 flex items-center gap-1.5 text-xs font-medium transition cursor-pointer"
+        class="px-3.5 py-2 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-900 hover:text-white flex items-center gap-1.5 text-xs font-mono transition cursor-pointer"
       >
         <RefreshCw class="w-3.5 h-3.5 {isLoading ? 'animate-spin' : ''}" />
-        <span>Refresh</span>
+        <span>Sync</span>
       </button>
       <button
         onclick={() => (showNewJobModal = true)}
-        class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white flex items-center gap-1.5 text-xs font-medium shadow-md shadow-indigo-600/20 transition cursor-pointer"
+        class="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-black flex items-center gap-1.5 text-xs font-mono font-medium shadow-sm transition cursor-pointer"
       >
         <Plus class="w-4 h-4" />
-        <span>New Scrape Job</span>
+        <span>New Extraction Job</span>
       </button>
     </div>
   </div>
@@ -82,45 +82,45 @@
     <StatCard
       title="Total Leads"
       value={metrics.total_leads.toLocaleString()}
-      subtitle="In local PostgreSQL lead lake"
-      iconBg="bg-indigo-500/10 text-indigo-400"
+      subtitle="Local PostgreSQL storage"
+      iconBg="bg-zinc-900 text-white"
     >
       {#snippet icon()}
-        <Building2 class="w-5 h-5" />
+        <Building2 class="w-4 h-4" />
       {/snippet}
     </StatCard>
 
     <StatCard
-      title="Discovered Emails"
+      title="Email Hit Rate"
       value={`${metrics.email_hit_rate.toFixed(1)}%`}
-      subtitle={`${metrics.enriched_leads.toLocaleString()} profiles enriched`}
-      trend="Active"
-      iconBg="bg-amber-500/10 text-amber-400"
+      subtitle={`${metrics.enriched_leads.toLocaleString()} verified profiles`}
+      trend="Crawled"
+      iconBg="bg-zinc-900 text-white"
     >
       {#snippet icon()}
-        <Mail class="w-5 h-5" />
+        <Mail class="w-4 h-4" />
       {/snippet}
     </StatCard>
 
     <StatCard
       title="Phone Reach"
       value={`${metrics.phone_hit_rate.toFixed(1)}%`}
-      subtitle="Direct business numbers"
-      iconBg="bg-emerald-500/10 text-emerald-400"
+      subtitle="Direct business lines"
+      iconBg="bg-zinc-900 text-white"
     >
       {#snippet icon()}
-        <Phone class="w-5 h-5" />
+        <Phone class="w-4 h-4" />
       {/snippet}
     </StatCard>
 
     <StatCard
-      title="Active Ingestion Jobs"
+      title="Active Jobs"
       value={metrics.active_jobs}
-      subtitle={`${metrics.completed_jobs} completed`}
-      iconBg="bg-violet-500/10 text-violet-400"
+      subtitle={`${metrics.completed_jobs} completed batches`}
+      iconBg="bg-zinc-900 text-white"
     >
       {#snippet icon()}
-        <Zap class="w-5 h-5" />
+        <Zap class="w-4 h-4" />
       {/snippet}
     </StatCard>
   </div>
@@ -128,40 +128,40 @@
   <!-- Main Content Split -->
   <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <!-- Recent Leads -->
-    <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-      <div class="flex items-center justify-between pb-4 border-b border-slate-800">
+    <div class="lg:col-span-2 bg-zinc-950 border border-zinc-800/90 rounded-2xl p-5 shadow-sm">
+      <div class="flex items-center justify-between pb-4 border-b border-zinc-800/80">
         <div>
-          <h2 class="text-sm font-bold text-white">Recently Ingested Leads</h2>
-          <p class="text-[11px] text-slate-400 mt-0.5">Fresh business listings saved to database</p>
+          <h2 class="text-base font-display font-light text-white">Recently Ingested Leads</h2>
+          <p class="text-[11px] font-mono text-zinc-500 mt-0.5">Fresh business listings saved to local database</p>
         </div>
-        <a href="/businesses" class="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium">
+        <a href="/businesses" class="text-xs font-mono text-zinc-300 hover:text-white flex items-center gap-1">
           <span>View All</span>
           <ArrowUpRight class="w-3.5 h-3.5" />
         </a>
       </div>
 
-      <div class="mt-4 divide-y divide-slate-800/60 text-xs">
+      <div class="mt-4 divide-y divide-zinc-900 text-xs font-mono">
         {#if recentLeads.length === 0}
-          <div class="py-12 text-center text-slate-400">
-            No leads ingested yet. Start your first scrape job!
+          <div class="py-12 text-center text-zinc-500">
+            No leads ingested yet. Launch your first extraction job!
           </div>
         {:else}
           {#each recentLeads as lead}
-            <div class="py-3 flex items-center justify-between gap-3 hover:bg-slate-800/30 px-2 rounded-xl transition">
+            <div class="py-3 flex items-center justify-between gap-3 hover:bg-zinc-900/40 px-2.5 rounded-xl transition">
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
-                  <span class="font-semibold text-slate-200 truncate">{lead.name}</span>
-                  <Badge variant="purple">{lead.category}</Badge>
+                  <span class="font-medium text-white truncate">{lead.name}</span>
+                  <Badge variant="default">{lead.category}</Badge>
                 </div>
-                <div class="flex items-center gap-3 mt-1 text-[11px] text-slate-400">
-                  <span class="flex items-center gap-1 truncate"><MapPin class="w-3 h-3 text-slate-400" /> {lead.city || lead.address}</span>
+                <div class="flex items-center gap-3 mt-1 text-[11px] text-zinc-500">
+                  <span class="flex items-center gap-1 truncate"><MapPin class="w-3 h-3 text-zinc-600" /> {lead.city || lead.address}</span>
                   {#if lead.emails && lead.emails.length > 0}
-                    <span class="text-emerald-400 font-mono">✉️ {lead.emails.length} email</span>
+                    <span class="text-emerald-400">✉️ {lead.emails.length} email</span>
                   {/if}
                 </div>
               </div>
-              <div class="flex items-center gap-1.5 shrink-0 text-amber-400 font-medium">
-                <Star class="w-3.5 h-3.5 fill-amber-400" />
+              <div class="flex items-center gap-1.5 shrink-0 text-white font-mono text-xs">
+                <Star class="w-3.5 h-3.5 fill-white text-white" />
                 <span>{lead.rating.toFixed(1)}</span>
               </div>
             </div>
@@ -173,19 +173,19 @@
     <!-- Category Breakdown & Batch Jobs -->
     <div class="space-y-6">
       <!-- Category Distribution -->
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
-        <h2 class="text-sm font-bold text-white mb-3 flex items-center gap-2">
-          <Layers class="w-4 h-4 text-indigo-400" />
+      <div class="bg-zinc-950 border border-zinc-800/90 rounded-2xl p-5 shadow-sm">
+        <h2 class="text-base font-display font-light text-white mb-3 flex items-center gap-2">
+          <Layers class="w-4 h-4 text-zinc-400" />
           <span>Top Categories Scraped</span>
         </h2>
-        <div class="space-y-2.5 text-xs">
+        <div class="space-y-2 text-xs font-mono">
           {#if categoryStats.length === 0}
-            <div class="py-6 text-center text-slate-400 text-[11px]">No category data yet</div>
+            <div class="py-6 text-center text-zinc-500 text-[11px]">No category data yet</div>
           {:else}
             {#each categoryStats as cat}
-              <div class="flex items-center justify-between p-2 rounded-lg bg-slate-950/50 border border-slate-800/80">
-                <span class="text-slate-300 font-medium truncate">{cat.category}</span>
-                <span class="text-indigo-400 font-mono font-bold bg-indigo-500/10 px-2 py-0.5 rounded text-[11px] border border-indigo-500/20">{cat.count}</span>
+              <div class="flex items-center justify-between p-2.5 rounded-xl bg-black border border-zinc-800">
+                <span class="text-zinc-300 font-medium truncate">{cat.category}</span>
+                <span class="text-white font-mono font-bold bg-zinc-900 px-2 py-0.5 rounded text-[11px] border border-zinc-700">{cat.count}</span>
               </div>
             {/each}
           {/if}
@@ -193,23 +193,23 @@
       </div>
 
       <!-- Recent Jobs Quick Status -->
-      <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm">
+      <div class="bg-zinc-950 border border-zinc-800/90 rounded-2xl p-5 shadow-sm">
         <div class="flex items-center justify-between mb-3">
-          <h2 class="text-sm font-bold text-white flex items-center gap-2">
-            <Zap class="w-4 h-4 text-amber-400" />
+          <h2 class="text-base font-display font-light text-white flex items-center gap-2">
+            <Zap class="w-4 h-4 text-zinc-400" />
             <span>Recent Jobs</span>
           </h2>
-          <a href="/jobs" class="text-[11px] text-indigo-400 hover:underline">Manage</a>
+          <a href="/jobs" class="text-[11px] font-mono text-zinc-400 hover:text-white">Manage</a>
         </div>
-        <div class="space-y-2 text-xs">
+        <div class="space-y-2 text-xs font-mono">
           {#if recentJobs.length === 0}
-            <div class="py-6 text-center text-slate-400 text-[11px]">No jobs executed yet</div>
+            <div class="py-6 text-center text-zinc-500 text-[11px]">No jobs executed yet</div>
           {:else}
             {#each recentJobs as job}
-              <div class="p-2.5 rounded-xl bg-slate-950/50 border border-slate-800 flex items-center justify-between">
+              <div class="p-2.5 rounded-xl bg-black border border-zinc-800 flex items-center justify-between">
                 <div class="min-w-0">
-                  <div class="font-medium text-slate-200 truncate">{job.query}</div>
-                  <div class="text-[10px] text-slate-400">{job.location} • {job.total_scraped} leads</div>
+                  <div class="font-medium text-white truncate">{job.query}</div>
+                  <div class="text-[10px] text-zinc-500">{job.location} • {job.total_scraped} leads</div>
                 </div>
                 <Badge variant={job.status === 'COMPLETED' ? 'success' : job.status === 'PROCESSING' ? 'warning' : 'default'}>
                   {job.status}

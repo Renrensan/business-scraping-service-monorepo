@@ -52,24 +52,31 @@ type BusinessLead struct {
 	EnrichmentStatus EnrichmentStatus       `json:"enrichment_status"`
 	LastScrapedAt    time.Time              `json:"last_scraped_at"`
 	LastEnrichedAt   *time.Time             `json:"last_enriched_at,omitempty"`
+	Contacted        bool                   `json:"contacted"`
+	ContactedAt      *time.Time             `json:"contacted_at,omitempty"`
 	CreatedAt        time.Time              `json:"created_at"`
 	UpdatedAt        time.Time              `json:"updated_at"`
 }
 
 type BusinessFilter struct {
-	Search    string
-	Category  string
-	City      string
-	State     string
-	HasEmail  *bool
-	HasPhone  *bool
-	MinRating *float64
-	Claimed   *bool
-	JobID     *uuid.UUID
-	SortBy    string
-	SortOrder string
-	Page      int
-	PageSize  int
+	Search     string
+	Category   string
+	City       string
+	State      string
+	HasEmail   *bool
+	HasPhone   *bool
+	HasWebsite *bool
+	MinRating  *float64
+	Claimed    *bool
+	Contacted  *bool
+	JobID      *uuid.UUID
+	Keyword    string
+	OnlyNew    *bool
+	MaxReviews *int
+	SortBy     string
+	SortOrder  string
+	Page       int
+	PageSize   int
 }
 
 type BusinessListResponse struct {

@@ -24,14 +24,14 @@ func NewJobService(jobRepo *repository.JobRepository, workerPool *engine.WorkerP
 }
 
 func (s *JobService) CreateJob(ctx context.Context, req model.CreateJobRequest) (*model.ScrapeJob, error) {
-	if req.Query == "" {
-		return nil, fmt.Errorf("search query is required")
-	}
 	if req.MaxResults <= 0 {
 		req.MaxResults = 50
 	}
 	if req.MaxResults > 1000 {
 		req.MaxResults = 1000
+	}
+	if req.MaxReviewCountForNew <= 0 {
+		req.MaxReviewCountForNew = 30
 	}
 
 	meta := make(map[string]interface{})
@@ -41,28 +41,89 @@ func (s *JobService) CreateJob(ctx context.Context, req model.CreateJobRequest) 
 	if req.ApiKey != "" {
 		meta["api_key"] = req.ApiKey
 	}
-
-	job := &model.ScrapeJob{
-		ID:             uuid.New(),
-		Status:         model.JobStatusPending,
-		Query:          req.Query,
-		Location:       req.Location,
-		Category:       req.Category,
-		MaxResults:     req.MaxResults,
-		EnrichContacts: req.EnrichContacts,
-		Metadata:       meta,
-		CreatedAt:      time.Now().UTC(),
-		UpdatedAt:      time.Now().UTC(),
+	// Recency Filter
+	recency := "any"
+	if req.RecencyFilter != "" {
+		recency = req.RecencyFilter
+	} else if req.OnlyNewBusinesses {
+		recency = "only_new"
+	}
+	meta["recency_filter"] = recency
+	if recency == "only_new" {
+		meta["only_new_businesses"] = true
+		meta["max_review_count_for_new"] = req.MaxReviewCountForNew
 	}
 
-	if err := s.jobRepo.Create(ctx, job); err != nil {
-		return nil, fmt.Errorf("failed to insert scrape job: %w", err)
+	// Website Filter
+	webFilter := "any"
+	if req.WebsiteFilter != "" {
+		webFilter = req.WebsiteFilter
+	} else if req.RequireWebsite {
+		webFilter = "require_website"
+	}
+	meta["website_filter"] = webFilter
+	if webFilter == "require_website" {
+		meta["require_website"] = true
 	}
 
-	// Dispatch asynchronously to worker pool
-	s.workerPool.SubmitJob(job)
+	var queries []string
+	if len(req.Queries) > 0 {
+		queries = req.Queries
+	} else if req.Query != "" {
+		queries = []string{req.Query}
+	} else {
+		return nil, fmt.Errorf("at least one search query is required")
+	}
 
-	return job, nil
+	var locations []string
+	if len(req.Locations) > 0 {
+		locations = req.Locations
+	} else if req.Location != "" {
+		locations = []string{req.Location}
+	} else {
+		locations = []string{"Bali, Indonesia"}
+	}
+
+	var firstJob *model.ScrapeJob
+
+	for _, loc := range locations {
+		for i, q := range queries {
+			cat := req.Category
+			if i < len(req.Categories) && req.Categories[i] != "" {
+				cat = req.Categories[i]
+			}
+
+			jobMeta := make(map[string]interface{})
+			for k, v := range meta {
+				jobMeta[k] = v
+			}
+
+			job := &model.ScrapeJob{
+				ID:             uuid.New(),
+				Status:         model.JobStatusPending,
+				Query:          q,
+				Location:       loc,
+				Category:       cat,
+				MaxResults:     req.MaxResults,
+				EnrichContacts: req.EnrichContacts,
+				Metadata:       jobMeta,
+				CreatedAt:      time.Now().UTC(),
+				UpdatedAt:      time.Now().UTC(),
+			}
+
+			if err := s.jobRepo.Create(ctx, job); err != nil {
+				return nil, fmt.Errorf("failed to insert scrape job: %w", err)
+			}
+
+			s.workerPool.SubmitJob(job)
+
+			if firstJob == nil {
+				firstJob = job
+			}
+		}
+	}
+
+	return firstJob, nil
 }
 
 func (s *JobService) GetJob(ctx context.Context, id uuid.UUID) (*model.ScrapeJob, error) {

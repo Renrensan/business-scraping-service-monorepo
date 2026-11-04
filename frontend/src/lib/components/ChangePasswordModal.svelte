@@ -1,7 +1,7 @@
 <script lang="ts">
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
-  import { X, Key } from 'lucide-svelte';
+  import { X, Key, Eye, EyeOff } from 'lucide-svelte';
 
   let {
     isOpen = false,
@@ -14,6 +14,9 @@
   let currentPassword = $state('');
   let newPassword = $state('');
   let confirmPassword = $state('');
+  let showCurrentPassword = $state(false);
+  let showNewPassword = $state(false);
+  let showConfirmPassword = $state(false);
   let isSubmitting = $state(false);
 
   async function handleSubmit() {
@@ -61,35 +64,80 @@
       <form onsubmit={(e) => { e.preventDefault(); handleSubmit(); }} class="p-6 space-y-4 text-xs">
         <div>
           <label for="modal-current-password" class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">Current Password</label>
-          <input
-            id="modal-current-password"
-            type="password"
-            bind:value={currentPassword}
-            required
-            class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-white text-xs focus:outline-hidden focus:border-zinc-400"
-          />
+          <div class="relative">
+            <input
+              id="modal-current-password"
+              type={showCurrentPassword ? 'text' : 'password'}
+              bind:value={currentPassword}
+              required
+              class="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-3.5 pr-10 py-2 text-white text-xs focus:outline-hidden focus:border-zinc-400"
+            />
+            <button
+              type="button"
+              onclick={() => (showCurrentPassword = !showCurrentPassword)}
+              class="absolute right-3 top-2 text-zinc-500 hover:text-zinc-300 transition cursor-pointer"
+              aria-label={showCurrentPassword ? 'Hide current password' : 'Show current password'}
+              tabindex="-1"
+            >
+              {#if showCurrentPassword}
+                <EyeOff class="w-4 h-4" />
+              {:else}
+                <Eye class="w-4 h-4" />
+              {/if}
+            </button>
+          </div>
         </div>
 
         <div>
           <label for="modal-new-password" class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">New Password</label>
-          <input
-            id="modal-new-password"
-            type="password"
-            bind:value={newPassword}
-            required
-            class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-white text-xs focus:outline-hidden focus:border-zinc-400"
-          />
+          <div class="relative">
+            <input
+              id="modal-new-password"
+              type={showNewPassword ? 'text' : 'password'}
+              bind:value={newPassword}
+              required
+              class="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-3.5 pr-10 py-2 text-white text-xs focus:outline-hidden focus:border-zinc-400"
+            />
+            <button
+              type="button"
+              onclick={() => (showNewPassword = !showNewPassword)}
+              class="absolute right-3 top-2 text-zinc-500 hover:text-zinc-300 transition cursor-pointer"
+              aria-label={showNewPassword ? 'Hide new password' : 'Show new password'}
+              tabindex="-1"
+            >
+              {#if showNewPassword}
+                <EyeOff class="w-4 h-4" />
+              {:else}
+                <Eye class="w-4 h-4" />
+              {/if}
+            </button>
+          </div>
         </div>
 
         <div>
           <label for="modal-confirm-password" class="block text-zinc-400 mb-1 uppercase text-[10px] tracking-wider">Confirm New Password</label>
-          <input
-            id="modal-confirm-password"
-            type="password"
-            bind:value={confirmPassword}
-            required
-            class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3.5 py-2 text-white text-xs focus:outline-hidden focus:border-zinc-400"
-          />
+          <div class="relative">
+            <input
+              id="modal-confirm-password"
+              type={showConfirmPassword ? 'text' : 'password'}
+              bind:value={confirmPassword}
+              required
+              class="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-3.5 pr-10 py-2 text-white text-xs focus:outline-hidden focus:border-zinc-400"
+            />
+            <button
+              type="button"
+              onclick={() => (showConfirmPassword = !showConfirmPassword)}
+              class="absolute right-3 top-2 text-zinc-500 hover:text-zinc-300 transition cursor-pointer"
+              aria-label={showConfirmPassword ? 'Hide confirm password' : 'Show confirm password'}
+              tabindex="-1"
+            >
+              {#if showConfirmPassword}
+                <EyeOff class="w-4 h-4" />
+              {:else}
+                <Eye class="w-4 h-4" />
+              {/if}
+            </button>
+          </div>
         </div>
 
         <div class="flex justify-end gap-2 pt-2 border-t border-zinc-800">

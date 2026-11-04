@@ -5,6 +5,8 @@ import "time"
 type OverviewMetrics struct {
 	TotalLeads             int64      `json:"total_leads"`
 	EnrichedLeads          int64      `json:"enriched_leads"`
+	LeadsWithEmail         int64      `json:"leads_with_email"`
+	LeadsWithPhone         int64      `json:"leads_with_phone"`
 	EmailHitRate           float64    `json:"email_hit_rate"`
 	PhoneHitRate           float64    `json:"phone_hit_rate"`
 	ActiveJobs             int64      `json:"active_jobs"`

@@ -24,6 +24,12 @@ type Crawler struct {
 }
 
 func NewCrawler(rotator *proxy.Rotator, defaultUserAgent string) *Crawler {
+	if rotator == nil {
+		rotator = proxy.NewRotator(nil)
+	}
+	if defaultUserAgent == "" {
+		defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+	}
 	return &Crawler{
 		rotator:   rotator,
 		userAgent: defaultUserAgent,
@@ -56,7 +62,12 @@ func (c *Crawler) EnrichWebsite(ctx context.Context, websiteURL string) (*Enrich
 	visited := make(map[string]bool)
 	var combinedHTML strings.Builder
 
-	client := c.rotator.GetNextClient(6*time.Second, c.userAgent)
+	var client *http.Client
+	if c.rotator != nil {
+		client = c.rotator.GetNextClient(6*time.Second, c.userAgent)
+	} else {
+		client = proxy.NewRotator(nil).GetNextClient(6*time.Second, c.userAgent)
+	}
 
 	for _, path := range candidatePaths {
 		targetURL := baseURL + path

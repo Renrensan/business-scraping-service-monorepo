@@ -22,9 +22,6 @@ func NewRotator(proxies []string) *Rotator {
 }
 
 func (r *Rotator) GetNextClient(timeout time.Duration, userAgent string) *http.Client {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	transport := &http.Transport{
 		TLSClientConfig:     &tls.Config{InsecureSkipVerify: true},
 		DisableKeepAlives:   false,
@@ -32,6 +29,16 @@ func (r *Rotator) GetNextClient(timeout time.Duration, userAgent string) *http.C
 		MaxIdleConnsPerHost: 20,
 		IdleConnTimeout:     90 * time.Second,
 	}
+
+	if r == nil {
+		return &http.Client{
+			Transport: transport,
+			Timeout:   timeout,
+		}
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	if len(r.proxies) > 0 {
 		proxyURLStr := r.proxies[r.index%len(r.proxies)]
@@ -49,12 +56,18 @@ func (r *Rotator) GetNextClient(timeout time.Duration, userAgent string) *http.C
 }
 
 func (r *Rotator) Count() int {
+	if r == nil {
+		return 0
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return len(r.proxies)
 }
 
 func (r *Rotator) SetProxies(proxies []string) {
+	if r == nil {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.proxies = proxies

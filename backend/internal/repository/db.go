@@ -2,14 +2,16 @@ package repository
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+//go:embed schema.sql
+var initSchemaSQL string
 
 func InitDB(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(databaseURL)
@@ -31,7 +33,7 @@ func InitDB(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	// Auto-run migrations if migration files exist
+	// Auto-run embedded migrations
 	if err := runMigrations(ctx, pool); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}
@@ -40,27 +42,7 @@ func InitDB(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 }
 
 func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	migrationDirs := []string{"./migrations", "../migrations", "backend/migrations"}
-	var migrationFile string
-
-	for _, dir := range migrationDirs {
-		candidate := filepath.Join(dir, "001_init_schema.sql")
-		if _, err := os.Stat(candidate); err == nil {
-			migrationFile = candidate
-			break
-		}
-	}
-
-	if migrationFile == "" {
-		return nil // No migration file found, schema might already exist
-	}
-
-	content, err := os.ReadFile(migrationFile)
-	if err != nil {
-		return err
-	}
-
-	queries := strings.Split(string(content), ";")
+	queries := strings.Split(initSchemaSQL, ";")
 	for _, query := range queries {
 		q := strings.TrimSpace(query)
 		if q == "" {
@@ -73,3 +55,4 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 
 	return nil
 }
+

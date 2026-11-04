@@ -1,22 +1,92 @@
-# Operating System
+# =============================================================
+# Monorepo .gitignore — backend (Go) + frontend (SvelteKit)
+# =============================================================
+
+# ---------- Secrets & environment ----------
+.env
+.env.*
+*.env
+!.env.example
+!.env.*.example
+!**/.env.example
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+id_rsa*
+id_ed25519*
+credentials*.json
+service-account*.json
+*-credentials.json
+secrets/
+.secrets/
+.netrc
+.npmrc
+.pypirc
+mise.local.toml
+.mise.local.toml
+
+# ---------- OS / editor ----------
 .DS_Store
 Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo
+*~
 
-# Dependencies
+# ---------- Node / frontend ----------
 node_modules/
 .pnpm-store/
+.pnpm-debug.log*
+npm-debug.log*
+yarn-error.log*
+frontend/build/
+frontend/.svelte-kit/
+frontend/.output/
+frontend/.vercel/
+frontend/.netlify/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
 
-# Build artifacts
+# ---------- Go / backend ----------
+backend/bin/
+backend/tmp/
+backend/vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.*
+go.work
+go.work.sum
+
+# ---------- Generic build / runtime ----------
 bin/
 build/
 dist/
-.svelte-kit/
-
-# Environment
-.env
-!.env.example
-
-# Logs & temp
-*.log
 tmp/
+*.log
+logs/
+
+# ---------- Data / exports (may contain scraped PII) ----------
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+*.sql.gz
+exports/
+pgdata/
+redis-data/
+*.csv
+*.xlsx
+
+# ---------- Local scratch ----------
 scratch/

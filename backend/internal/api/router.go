@@ -19,6 +19,7 @@ type Handlers struct {
 	Export   *handler.ExportHandler
 	Metrics  *handler.MetricsHandler
 	System   *handler.SystemHandler
+	Keyword  *handler.KeywordHandler
 }
 
 type Services struct {
@@ -36,21 +37,22 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 
 	// CORS Setup
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{cfg.FrontendURL, "http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173"},
+		AllowedOrigins:   []string{cfg.FrontendURL, "https://admin.momos.asia", "http://admin.momos.asia", "http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3004"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
 
-	// Root Healthcheck
+	// Root Healthcheck (supports GET and HEAD for docker healthchecks)
 	r.Get("/health", h.System.GetHealth)
+	r.Head("/health", h.System.GetHealth)
 
-	// API v1 Routes
-	r.Route("/api/v1", func(api chi.Router) {
+	registerRoutes := func(api chi.Router) {
 		// Public Auth
 		api.Post("/auth/login", h.Auth.Login)
 		api.Get("/system/health", h.System.GetHealth)
+		api.Head("/system/health", h.System.GetHealth)
 
 		// Protected Routes (Session Required)
 		api.Group(func(protected chi.Router) {
@@ -71,9 +73,22 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 			protected.Get("/jobs", h.Job.List)
 			protected.Get("/jobs/{id}", h.Job.GetByID)
 
+			// Scraper Keywords & Cursor Registry
+			protected.Get("/keywords", h.Keyword.List)
+			protected.Post("/keywords", h.Keyword.Create)
+			protected.Put("/keywords/{id}", h.Keyword.Update)
+			protected.Patch("/keywords/{id}", h.Keyword.Update)
+			protected.Post("/keywords/{id}/scrape", h.Keyword.Trigger)
+			protected.Post("/keywords/{id}/trigger", h.Keyword.Trigger)
+			protected.Post("/keywords/{id}/reset", h.Keyword.Reset)
+			protected.Delete("/keywords/{id}", h.Keyword.Delete)
+
 			// Businesses / Leads Database
 			protected.Get("/businesses", h.Business.List)
+			protected.Get("/businesses/keywords", h.Business.GetKeywords)
+			protected.Get("/businesses/categories", h.Business.GetCategories)
 			protected.Get("/businesses/{id}", h.Business.GetByID)
+			protected.Patch("/businesses/{id}/contacted", h.Business.PatchContacted)
 			protected.Delete("/businesses/{id}", h.Business.Delete)
 
 			// Export
@@ -86,7 +101,13 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 			protected.Post("/system/schedule", h.System.UpdateSchedule)
 			protected.Post("/system/trigger-scrape", h.System.TriggerImmediateScrape)
 		})
-	})
+	}
+
+	// Mount on all common prefix variations so any Nginx proxy_pass style works flawlessly
+	r.Route("/api/v1", registerRoutes)
+	r.Route("/v1", registerRoutes)
+	r.Route("/api", registerRoutes)
+	r.Group(registerRoutes)
 
 	return r
 }

@@ -77,19 +77,48 @@ func (s *SystemService) GetSchedule() *engine.ScheduleInfo {
 	return &info
 }
 
-func (s *SystemService) UpdateSchedule(intervalHours int, autoEnabled bool, query, location string) *engine.ScheduleInfo {
+func (s *SystemService) UpdateSchedule(
+	intervalHours int,
+	autoEnabled bool,
+	queries []string,
+	locations []string,
+	categories []string,
+	onlyNewBusinesses bool,
+	requireWebsite bool,
+	websiteFilter string,
+	recencyFilter string,
+	maxReviewCountForNew int,
+	maxPagesPerRun int,
+	pageSize int,
+	maxResults int,
+	enrich bool,
+	engine string,
+) *engine.ScheduleInfo {
 	if s.scheduler == nil {
 		return nil
 	}
-	info := s.scheduler.UpdateSchedule(intervalHours, autoEnabled, query, location)
+	info := s.scheduler.UpdateSchedule(intervalHours, autoEnabled, queries, locations, categories, onlyNewBusinesses, requireWebsite, websiteFilter, recencyFilter, maxReviewCountForNew, maxPagesPerRun, pageSize, maxResults, enrich, engine)
 	return &info
 }
 
-func (s *SystemService) TriggerImmediateScrape(ctx context.Context, query, location string, maxResults int) (*model.ScrapeJob, error) {
+func (s *SystemService) TriggerImmediateScrape(
+	ctx context.Context,
+	queries []string,
+	locations []string,
+	categories []string,
+	maxResults int,
+	enrich bool,
+	engine string,
+	onlyNew bool,
+	requireWebsite bool,
+	websiteFilter string,
+	recencyFilter string,
+	maxReviews int,
+) (*model.ScrapeJob, error) {
 	if s.scheduler == nil {
 		return nil, nil
 	}
-	return s.scheduler.TriggerNow(ctx, query, location, maxResults)
+	return s.scheduler.TriggerNow(ctx, queries, locations, categories, maxResults, enrich, engine, onlyNew, requireWebsite, websiteFilter, recencyFilter, maxReviews)
 }
 
 type HealthResponse struct {

@@ -73,6 +73,8 @@ func main() {
 	adminRepo := repository.NewAdminRepository(dbPool)
 	jobRepo := repository.NewJobRepository(dbPool)
 	businessRepo := repository.NewBusinessRepository(dbPool)
+	settingsRepo := repository.NewSettingsRepository(dbPool)
+	keywordRepo := repository.NewKeywordRepository(dbPool)
 
 	// 6. Initialize Redis Session Store
 	sessionStore := session.NewRedisStore(redisCli, session.DefaultSessionTTL)
@@ -82,7 +84,7 @@ func main() {
 
 	// 8. Initialize Extraction & Enrichment Engine & Scheduler
 	workerPool := engine.NewWorkerPool(cfg, jobRepo, businessRepo, redisCli)
-	scheduler := engine.NewScheduler(workerPool, jobRepo, businessRepo)
+	scheduler := engine.NewScheduler(workerPool, jobRepo, businessRepo, settingsRepo, keywordRepo, cfg)
 	scheduler.Start(ctx)
 
 	// 9. Initialize Services
@@ -92,6 +94,7 @@ func main() {
 	exportSvc := service.NewExportService(businessRepo)
 	metricsSvc := service.NewMetricsService(businessRepo, scheduler)
 	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler)
+	keywordSvc := service.NewKeywordService(keywordRepo, businessRepo, jobRepo, settingsRepo, cfg)
 
 	// 10. Initialize Handlers
 	handlers := &api.Handlers{
@@ -101,6 +104,7 @@ func main() {
 		Export:   handler.NewExportHandler(exportSvc),
 		Metrics:  handler.NewMetricsHandler(metricsSvc),
 		System:   handler.NewSystemHandler(systemSvc),
+		Keyword:  handler.NewKeywordHandler(keywordSvc),
 	}
 
 	services := &api.Services{

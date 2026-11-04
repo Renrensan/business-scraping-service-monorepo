@@ -2,9 +2,12 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,7 +25,53 @@ func NewBusinessRepository(db *pgxpool.Pool) *BusinessRepository {
 	return &BusinessRepository{db: db}
 }
 
-func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLead) error {
+func safeJSONArray(items []string) []byte {
+	if len(items) == 0 {
+		return []byte("[]")
+	}
+	b, err := json.Marshal(items)
+	if err != nil || string(b) == "null" {
+		return []byte("[]")
+	}
+	return b
+}
+
+func safeJSONObject(obj map[string]interface{}) []byte {
+	if len(obj) == 0 {
+		return []byte("{}")
+	}
+	b, err := json.Marshal(obj)
+	if err != nil || string(b) == "null" {
+		return []byte("{}")
+	}
+	return b
+}
+
+func normalizeDomain(raw string) string {
+	raw = strings.TrimSpace(strings.ToLower(raw))
+	if raw == "" {
+		return ""
+	}
+	raw = strings.TrimPrefix(raw, "https://")
+	raw = strings.TrimPrefix(raw, "http://")
+	raw = strings.TrimPrefix(raw, "www.")
+	if idx := strings.IndexAny(raw, "/?#"); idx != -1 {
+		raw = raw[:idx]
+	}
+	return strings.TrimSpace(raw)
+}
+
+func normalizePhoneDigits(raw string) string {
+	var sb strings.Builder
+	for _, r := range raw {
+		if r >= '0' && r <= '9' {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
+func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLead) (bool, error) {
 	now := time.Now().UTC()
 	lead.LastScrapedAt = now
 	lead.UpdatedAt = now
@@ -33,10 +82,24 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 	cleanPlaceID := strings.TrimSpace(lead.PlaceID)
 	cleanName := strings.TrimSpace(lead.Name)
 	cleanCity := strings.TrimSpace(lead.City)
+	cleanAddress := strings.TrimSpace(lead.Address)
 	cleanWebsite := strings.TrimSpace(lead.Website)
+	cleanDomain := normalizeDomain(cleanWebsite)
 	cleanPhone := strings.TrimSpace(lead.PrimaryPhone)
+	cleanPhoneDigits := normalizePhoneDigits(cleanPhone)
 
-	// Step 1: Check for existing matching lead by place_id, website domain, phone, or name+city
+	if cleanPlaceID == "" {
+		if cleanName != "" && cleanAddress != "" {
+			cleanPlaceID = fmt.Sprintf("lead_%x", sha256.Sum256([]byte(strings.ToLower(cleanName+"|"+cleanAddress))))
+		} else if cleanName != "" {
+			cleanPlaceID = fmt.Sprintf("lead_%x", sha256.Sum256([]byte(strings.ToLower(cleanName+"|"+cleanCity))))
+		} else {
+			cleanPlaceID = fmt.Sprintf("lead_%s", uuid.New().String())
+		}
+		lead.PlaceID = cleanPlaceID
+	}
+
+	// Step 1: Check for existing matching lead by place_id, website domain, phone digits, or name+location
 	findQuery := `
 		SELECT id, place_id, cid, name, category, subcategories, address, street, city, state, 
 		       postal_code, country, latitude, longitude, rating, review_count, price_level, 
@@ -45,16 +108,28 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		       opening_hours, photos, enrichment_status, created_at
 		FROM business_leads
 		WHERE ($1 != '' AND place_id = $1)
-		   OR ($2 != '' AND (website = $2 OR website ILIKE '%' || $2 || '%'))
-		   OR ($3 != '' AND primary_phone = $3)
-		   OR ($4 != '' AND $5 != '' AND LOWER(TRIM(name)) = LOWER(TRIM($4)) AND LOWER(TRIM(city)) = LOWER(TRIM($5)))
+		   OR ($2 != '' AND (
+		       website = $2 
+		       OR ($3 != '' AND (website ILIKE '%' || $3 || '%' OR $3 ILIKE '%' || regexp_replace(regexp_replace(website, '^https?://(www\.)?', ''), '(/.*|\?.*|#.*)$', '') || '%'))
+		   ))
+		   OR ($4 != '' AND (
+		       primary_phone = $4 
+		       OR ($5 != '' AND regexp_replace(primary_phone, '[^0-9]', '', 'g') = $5)
+		   ))
+		   OR (
+		       $6 != '' AND LOWER(TRIM(name)) = LOWER(TRIM($6)) AND (
+		           ($7 != '' AND LOWER(TRIM(city)) = LOWER(TRIM($7)))
+		           OR ($8 != '' AND (LOWER(TRIM(address)) = LOWER(TRIM($8)) OR address ILIKE '%' || $8 || '%'))
+		           OR ($7 = '' AND $8 != '' AND address ILIKE '%' || $6 || '%')
+		       )
+		   )
 		LIMIT 1
 	`
 
 	var existing model.BusinessLead
 	var subcatBytes, emailsBytes, phonesBytes, hoursBytes, photosBytes []byte
 
-	err := r.db.QueryRow(ctx, findQuery, cleanPlaceID, cleanWebsite, cleanPhone, cleanName, cleanCity).Scan(
+	err := r.db.QueryRow(ctx, findQuery, cleanPlaceID, cleanWebsite, cleanDomain, cleanPhone, cleanPhoneDigits, cleanName, cleanCity, cleanAddress).Scan(
 		&existing.ID, &existing.PlaceID, &existing.CID, &existing.Name, &existing.Category, &subcatBytes,
 		&existing.Address, &existing.Street, &existing.City, &existing.State, &existing.PostalCode,
 		&existing.Country, &existing.Latitude, &existing.Longitude, &existing.Rating, &existing.ReviewCount,
@@ -116,14 +191,14 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 			lead.EnrichmentStatus = existing.EnrichmentStatus
 		}
 
-		subcatJSON, _ := json.Marshal(lead.Subcategories)
-		emailsJSON, _ := json.Marshal(lead.Emails)
-		phonesJSON, _ := json.Marshal(lead.Phones)
-		hoursJSON, _ := json.Marshal(lead.OpeningHours)
+		subcatJSON := safeJSONArray(lead.Subcategories)
+		emailsJSON := safeJSONArray(lead.Emails)
+		phonesJSON := safeJSONArray(lead.Phones)
+		hoursJSON := safeJSONObject(lead.OpeningHours)
 		if len(hoursJSON) <= 2 && len(hoursBytes) > 2 {
 			hoursJSON = hoursBytes
 		}
-		photosJSON, _ := json.Marshal(lead.Photos)
+		photosJSON := safeJSONArray(lead.Photos)
 		if len(photosJSON) <= 2 && len(photosBytes) > 2 {
 			photosJSON = photosBytes
 		}
@@ -175,9 +250,9 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 			lead.FacebookURL, lead.InstagramURL, lead.LinkedinURL, lead.TwitterURL, lead.YoutubeURL, lead.TiktokURL,
 			lead.GoogleMapsURL, hoursJSON, photosJSON, lead.EnrichmentStatus, lead.LastScrapedAt, lead.UpdatedAt,
 		)
-		return updateErr
+		return false, updateErr
 	} else if !errors.Is(err, pgx.ErrNoRows) {
-		return err
+		return false, err
 	}
 
 	// Step 2: No existing match found -> Insert new lead
@@ -185,26 +260,11 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		lead.ID = uuid.New()
 	}
 
-	subcatJSON, _ := json.Marshal(lead.Subcategories)
-	if len(subcatJSON) == 0 {
-		subcatJSON = []byte("[]")
-	}
-	emailsJSON, _ := json.Marshal(lead.Emails)
-	if len(emailsJSON) == 0 {
-		emailsJSON = []byte("[]")
-	}
-	phonesJSON, _ := json.Marshal(lead.Phones)
-	if len(phonesJSON) == 0 {
-		phonesJSON = []byte("[]")
-	}
-	hoursJSON, _ := json.Marshal(lead.OpeningHours)
-	if len(hoursJSON) == 0 {
-		hoursJSON = []byte("{}")
-	}
-	photosJSON, _ := json.Marshal(lead.Photos)
-	if len(photosJSON) == 0 {
-		photosJSON = []byte("[]")
-	}
+	subcatJSON := safeJSONArray(lead.Subcategories)
+	emailsJSON := safeJSONArray(lead.Emails)
+	phonesJSON := safeJSONArray(lead.Phones)
+	hoursJSON := safeJSONObject(lead.OpeningHours)
+	photosJSON := safeJSONArray(lead.Photos)
 
 	insertQuery := `
 		INSERT INTO business_leads (
@@ -258,7 +318,10 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		lead.GoogleMapsURL, hoursJSON, photosJSON, lead.EnrichmentStatus, lead.LastScrapedAt,
 		lead.LastEnrichedAt, lead.CreatedAt, lead.UpdatedAt,
 	)
-	return err
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func mergeUniqueStrings(a, b []string) []string {
@@ -275,14 +338,8 @@ func mergeUniqueStrings(a, b []string) []string {
 }
 
 func (r *BusinessRepository) UpdateEnrichment(ctx context.Context, id uuid.UUID, emails, phones []string, fb, ig, li, tw, yt, tt string, status model.EnrichmentStatus) error {
-	emailsJSON, _ := json.Marshal(emails)
-	if len(emailsJSON) == 0 {
-		emailsJSON = []byte("[]")
-	}
-	phonesJSON, _ := json.Marshal(phones)
-	if len(phonesJSON) == 0 {
-		phonesJSON = []byte("[]")
-	}
+	emailsJSON := safeJSONArray(emails)
+	phonesJSON := safeJSONArray(phones)
 	now := time.Now().UTC()
 
 	query := `
@@ -303,7 +360,7 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 		       price_level, claimed, business_status, website, primary_phone, emails, phones,
 		       facebook_url, instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url,
 		       google_maps_url, opening_hours, photos, enrichment_status, last_scraped_at,
-		       last_enriched_at, created_at, updated_at
+		       last_enriched_at, contacted, contacted_at, created_at, updated_at
 		FROM business_leads
 		WHERE id = $1
 	`
@@ -316,7 +373,7 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 		&lead.PriceLevel, &lead.Claimed, &lead.BusinessStatus, &lead.Website, &lead.PrimaryPhone, &emailsBytes, &phonesBytes,
 		&lead.FacebookURL, &lead.InstagramURL, &lead.LinkedinURL, &lead.TwitterURL, &lead.YoutubeURL, &lead.TiktokURL,
 		&lead.GoogleMapsURL, &hoursBytes, &photosBytes, &lead.EnrichmentStatus, &lead.LastScrapedAt,
-		&lead.LastEnrichedAt, &lead.CreatedAt, &lead.UpdatedAt,
+		&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.CreatedAt, &lead.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -353,14 +410,36 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 	argIdx := 1
 
 	if filter.Search != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("(name ILIKE $%d OR address ILIKE $%d OR website ILIKE $%d OR primary_phone ILIKE $%d)", argIdx, argIdx, argIdx, argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf("(name ILIKE $%d OR address ILIKE $%d OR city ILIKE $%d OR category ILIKE $%d OR subcategories::text ILIKE $%d OR website ILIKE $%d OR primary_phone ILIKE $%d OR emails::text ILIKE $%d)", argIdx, argIdx, argIdx, argIdx, argIdx, argIdx, argIdx, argIdx))
 		args = append(args, "%"+filter.Search+"%")
 		argIdx++
 	}
 	if filter.Category != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("category ILIKE $%d", argIdx))
-		args = append(args, "%"+filter.Category+"%")
-		argIdx++
+		// Smart multi-keyword category matching (e.g. "Villas & Luxury Resorts" -> match Villa, Resort, etc.)
+		cleanCat := strings.TrimSpace(filter.Category)
+		terms := strings.FieldsFunc(cleanCat, func(r rune) bool {
+			return r == '&' || r == '/' || r == ','
+		})
+
+		var catClauses []string
+		for _, term := range terms {
+			t := strings.TrimSpace(term)
+			if len(t) > 2 {
+				// Strip plural 's' for root match (e.g. "Villas" -> "Villa", "Cafes" -> "Cafe")
+				root := strings.TrimSuffix(strings.TrimSuffix(t, "s"), "es")
+				catClauses = append(catClauses, fmt.Sprintf("(category ILIKE $%d OR subcategories::text ILIKE $%d)", argIdx, argIdx))
+				args = append(args, "%"+root+"%")
+				argIdx++
+			}
+		}
+
+		if len(catClauses) > 0 {
+			whereClauses = append(whereClauses, "("+strings.Join(catClauses, " OR ")+")")
+		} else {
+			whereClauses = append(whereClauses, fmt.Sprintf("(category ILIKE $%d OR subcategories::text ILIKE $%d)", argIdx, argIdx))
+			args = append(args, "%"+cleanCat+"%")
+			argIdx++
+		}
 	}
 	if filter.City != "" {
 		whereClauses = append(whereClauses, fmt.Sprintf("city ILIKE $%d", argIdx))
@@ -384,21 +463,57 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 	}
 	if filter.HasEmail != nil {
 		if *filter.HasEmail {
-			whereClauses = append(whereClauses, "jsonb_array_length(emails) > 0")
+			whereClauses = append(whereClauses, "(emails IS NOT NULL AND jsonb_typeof(emails) = 'array' AND jsonb_array_length(emails) > 0)")
 		} else {
-			whereClauses = append(whereClauses, "(emails IS NULL OR jsonb_array_length(emails) = 0)")
+			whereClauses = append(whereClauses, "(emails IS NULL OR jsonb_typeof(emails) != 'array' OR jsonb_array_length(emails) = 0)")
 		}
 	}
 	if filter.HasPhone != nil {
 		if *filter.HasPhone {
-			whereClauses = append(whereClauses, "(primary_phone != '' OR jsonb_array_length(phones) > 0)")
+			whereClauses = append(whereClauses, "((primary_phone IS NOT NULL AND primary_phone != '') OR (phones IS NOT NULL AND jsonb_typeof(phones) = 'array' AND jsonb_array_length(phones) > 0))")
 		} else {
-			whereClauses = append(whereClauses, "primary_phone = '' AND (phones IS NULL OR jsonb_array_length(phones) = 0)")
+			whereClauses = append(whereClauses, "((primary_phone IS NULL OR primary_phone = '') AND (phones IS NULL OR jsonb_typeof(phones) != 'array' OR jsonb_array_length(phones) = 0))")
 		}
+	}
+	if filter.HasWebsite != nil {
+		if *filter.HasWebsite {
+			whereClauses = append(whereClauses, "website != ''")
+		} else {
+			whereClauses = append(whereClauses, "website = ''")
+		}
+	}
+	if filter.Contacted != nil {
+		whereClauses = append(whereClauses, fmt.Sprintf("contacted = $%d", argIdx))
+		args = append(args, *filter.Contacted)
+		argIdx++
 	}
 	if filter.JobID != nil {
 		whereClauses = append(whereClauses, fmt.Sprintf("job_id = $%d", argIdx))
 		args = append(args, *filter.JobID)
+		argIdx++
+	}
+	if strings.TrimSpace(filter.Keyword) != "" {
+		whereClauses = append(whereClauses, fmt.Sprintf("(subcategories @> jsonb_build_array($%d::text) OR job_id IN (SELECT id FROM scrape_jobs WHERE query ILIKE $%d))", argIdx, argIdx))
+		args = append(args, strings.TrimSpace(filter.Keyword))
+		argIdx++
+	}
+	if filter.OnlyNew != nil {
+		maxReviews := 30
+		if filter.MaxReviews != nil && *filter.MaxReviews > 0 {
+			maxReviews = *filter.MaxReviews
+		}
+		if *filter.OnlyNew {
+			whereClauses = append(whereClauses, fmt.Sprintf("(subcategories::text ILIKE '%%New Business%%' OR business_status = 'OPENING_SOON' OR review_count <= $%d)", argIdx))
+			args = append(args, maxReviews)
+			argIdx++
+		} else {
+			whereClauses = append(whereClauses, fmt.Sprintf("(subcategories::text NOT ILIKE '%%New Business%%' AND business_status != 'OPENING_SOON' AND review_count > $%d)", argIdx))
+			args = append(args, maxReviews)
+			argIdx++
+		}
+	} else if filter.MaxReviews != nil && *filter.MaxReviews > 0 {
+		whereClauses = append(whereClauses, fmt.Sprintf("review_count <= $%d", argIdx))
+		args = append(args, *filter.MaxReviews)
 		argIdx++
 	}
 
@@ -439,7 +554,7 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 		       price_level, claimed, business_status, website, primary_phone, emails, phones,
 		       facebook_url, instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url,
 		       google_maps_url, opening_hours, photos, enrichment_status, last_scraped_at,
-		       last_enriched_at, created_at, updated_at
+		       last_enriched_at, contacted, contacted_at, created_at, updated_at
 		FROM business_leads
 		WHERE %s
 		ORDER BY %s %s
@@ -464,7 +579,7 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 			&lead.PriceLevel, &lead.Claimed, &lead.BusinessStatus, &lead.Website, &lead.PrimaryPhone, &emailsBytes, &phonesBytes,
 			&lead.FacebookURL, &lead.InstagramURL, &lead.LinkedinURL, &lead.TwitterURL, &lead.YoutubeURL, &lead.TiktokURL,
 			&lead.GoogleMapsURL, &hoursBytes, &photosBytes, &lead.EnrichmentStatus, &lead.LastScrapedAt,
-			&lead.LastEnrichedAt, &lead.CreatedAt, &lead.UpdatedAt,
+			&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.CreatedAt, &lead.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -508,15 +623,13 @@ func (r *BusinessRepository) GetOverviewMetrics(ctx context.Context) (*model.Ove
 	// Total leads
 	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM business_leads").Scan(&metrics.TotalLeads)
 
-	// Leads with email
-	var leadsWithEmail int64
-	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM business_leads WHERE jsonb_array_length(emails) > 0").Scan(&leadsWithEmail)
+	// Leads with email (check non-empty emails jsonb array)
+	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM business_leads WHERE emails IS NOT NULL AND jsonb_typeof(emails) = 'array' AND jsonb_array_length(emails) > 0").Scan(&metrics.LeadsWithEmail)
 
-	// Leads with phone
-	var leadsWithPhone int64
-	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM business_leads WHERE primary_phone != '' OR jsonb_array_length(phones) > 0").Scan(&leadsWithPhone)
+	// Leads with phone (check primary_phone or non-empty phones jsonb array)
+	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM business_leads WHERE (primary_phone IS NOT NULL AND primary_phone != '') OR (phones IS NOT NULL AND jsonb_typeof(phones) = 'array' AND jsonb_array_length(phones) > 0)").Scan(&metrics.LeadsWithPhone)
 
-	// Enriched count
+	// Enriched count (websites crawled successfully)
 	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM business_leads WHERE enrichment_status = 'SUCCESS'").Scan(&metrics.EnrichedLeads)
 
 	// Jobs stats
@@ -525,8 +638,8 @@ func (r *BusinessRepository) GetOverviewMetrics(ctx context.Context) (*model.Ove
 	_ = r.db.QueryRow(ctx, "SELECT COALESCE(SUM(total_scraped), 0) FROM scrape_jobs").Scan(&metrics.TotalScrapedEver)
 
 	if metrics.TotalLeads > 0 {
-		metrics.EmailHitRate = (float64(leadsWithEmail) / float64(metrics.TotalLeads)) * 100
-		metrics.PhoneHitRate = (float64(leadsWithPhone) / float64(metrics.TotalLeads)) * 100
+		metrics.EmailHitRate = (float64(metrics.LeadsWithEmail) / float64(metrics.TotalLeads)) * 100
+		metrics.PhoneHitRate = (float64(metrics.LeadsWithPhone) / float64(metrics.TotalLeads)) * 100
 	}
 
 	return &metrics, nil
@@ -588,4 +701,104 @@ func (r *BusinessRepository) GetLocationStats(ctx context.Context, limit int) ([
 		stats = append(stats, &stat)
 	}
 	return stats, nil
+}
+
+func (r *BusinessRepository) SetContacted(ctx context.Context, id uuid.UUID, contacted bool) error {
+	var contactedAt *time.Time
+	if contacted {
+		now := time.Now().UTC()
+		contactedAt = &now
+	}
+	_, err := r.db.Exec(ctx,
+		`UPDATE business_leads SET contacted = $1, contacted_at = $2, updated_at = NOW() WHERE id = $3`,
+		contacted, contactedAt, id,
+	)
+	return err
+}
+
+func (r *BusinessRepository) GetScrapeKeywords(ctx context.Context) ([]string, error) {
+	query := `
+		SELECT DISTINCT keyword FROM (
+			SELECT keyword FROM scraper_keywords WHERE keyword != ''
+			UNION
+			SELECT query AS keyword FROM scrape_jobs WHERE query != ''
+		) combined_keywords
+		ORDER BY keyword ASC
+	`
+	rows, err := r.db.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var keywords []string
+	for rows.Next() {
+		var kw string
+		if err := rows.Scan(&kw); err == nil && kw != "" {
+			keywords = append(keywords, kw)
+		}
+	}
+	return keywords, nil
+}
+
+var locationSepRegex = regexp.MustCompile(`(?i)\s+(in|at|near|around|di)\s+|,|-|\|`)
+
+// DeriveCategoryFromKeyword dynamically extracts and title-cases the front category word(s)
+// from a scrape keyword (e.g. "cafe in canggu" -> "Cafe", "cafe in denpasar" -> "Cafe").
+func DeriveCategoryFromKeyword(kw string) string {
+	clean := strings.TrimSpace(kw)
+	if clean == "" {
+		return ""
+	}
+
+	// Split by location separators
+	loc := locationSepRegex.FindStringIndex(clean)
+	if len(loc) > 0 {
+		clean = strings.TrimSpace(clean[:loc[0]])
+	}
+
+	if clean == "" {
+		return ""
+	}
+
+	// Title Case words
+	words := strings.Fields(clean)
+	for i, w := range words {
+		lower := strings.ToLower(w)
+		if len(lower) > 0 {
+			words[i] = strings.ToUpper(lower[:1]) + lower[1:]
+		}
+	}
+	derived := strings.Join(words, " ")
+
+	// Normalize trailing plural 's' if > 4 chars (e.g. "Cafes" -> "Cafe", "Villas" -> "Villa")
+	// but preserve words ending in 'ss' like "Fitness" or "Wellness"
+	if strings.HasSuffix(derived, "s") && !strings.HasSuffix(derived, "ss") && len(derived) > 4 {
+		derived = strings.TrimSuffix(derived, "s")
+	}
+
+	return derived
+}
+
+func (r *BusinessRepository) GetDerivedCategories(ctx context.Context) ([]string, error) {
+	keywords, err := r.GetScrapeKeywords(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	catMap := make(map[string]bool)
+	for _, kw := range keywords {
+		cat := DeriveCategoryFromKeyword(kw)
+		if cat != "" {
+			catMap[cat] = true
+		}
+	}
+
+	categories := make([]string, 0, len(catMap))
+	for cat := range catMap {
+		categories = append(categories, cat)
+	}
+
+	sort.Strings(categories)
+	return categories, nil
 }

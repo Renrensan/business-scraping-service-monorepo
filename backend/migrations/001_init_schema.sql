@@ -85,3 +85,34 @@ CREATE INDEX IF NOT EXISTS idx_business_leads_lower_name_city ON business_leads(
 CREATE INDEX IF NOT EXISTS idx_business_leads_lower_website ON business_leads(LOWER(website));
 CREATE INDEX IF NOT EXISTS idx_business_leads_phone ON business_leads(primary_phone);
 
+-- 4. System Settings Table
+CREATE TABLE IF NOT EXISTS system_settings (
+    key VARCHAR(100) PRIMARY KEY,
+    value JSONB NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 5. Scraper Keywords Table (Stateful Cursor Pagination Registry)
+CREATE TABLE IF NOT EXISTS scraper_keywords (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    keyword VARCHAR(255) UNIQUE NOT NULL,
+    next_page_token TEXT DEFAULT '',
+    current_page INT NOT NULL DEFAULT 1,
+    total_leads_scraped INT NOT NULL DEFAULT 0,
+    last_scraped_at TIMESTAMPTZ,
+    status VARCHAR(50) NOT NULL DEFAULT 'ready',
+    is_active BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scraper_keywords_status ON scraper_keywords(status);
+CREATE INDEX IF NOT EXISTS idx_scraper_keywords_active ON scraper_keywords(is_active);
+CREATE INDEX IF NOT EXISTS idx_scraper_keywords_updated_at ON scraper_keywords(updated_at DESC);
+
+-- 6. Non-destructive Alterations (Ensures existing tables get new columns on startup)
+ALTER TABLE business_leads ADD COLUMN IF NOT EXISTS contacted BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE business_leads ADD COLUMN IF NOT EXISTS contacted_at TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_business_leads_contacted ON business_leads(contacted);
+
+

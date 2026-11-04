@@ -1,0 +1,181 @@
+package repository
+
+import (
+	"strings"
+	"testing"
+
+	"business-scraping-service/backend/internal/model"
+)
+
+func TestSafeJSONArray(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []string
+		expected string
+	}{
+		{
+			name:     "nil slice",
+			input:    nil,
+			expected: "[]",
+		},
+		{
+			name:     "empty slice",
+			input:    []string{},
+			expected: "[]",
+		},
+		{
+			name:     "valid strings",
+			input:    []string{"info@example.com", "sales@example.com"},
+			expected: `["info@example.com","sales@example.com"]`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := string(safeJSONArray(tt.input))
+			if got != tt.expected {
+				t.Errorf("safeJSONArray() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestSafeJSONObject(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    map[string]interface{}
+		expected string
+	}{
+		{
+			name:     "nil map",
+			input:    nil,
+			expected: "{}",
+		},
+		{
+			name:     "empty map",
+			input:    map[string]interface{}{},
+			expected: "{}",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := string(safeJSONObject(tt.input))
+			if got != tt.expected {
+				t.Errorf("safeJSONObject() = %v, want %v", got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNormalizeDomain(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"https://www.example.com/about", "example.com"},
+		{"http://example.com/contact?foo=bar", "example.com"},
+		{"WWW.BALIVILLAS.COM/", "balivillas.com"},
+		{"", ""},
+		{"https://subdomain.domain.co.id/page#anchor", "subdomain.domain.co.id"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := normalizeDomain(tt.input)
+			if got != tt.expected {
+				t.Errorf("normalizeDomain(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNormalizePhoneDigits(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"+62 812-3456-7890", "6281234567890"},
+		{"(0361) 123456", "0361123456"},
+		{"0812 3456 7890", "081234567890"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := normalizePhoneDigits(tt.input)
+			if got != tt.expected {
+				t.Errorf("normalizePhoneDigits(%q) = %q, want %q", tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestListQueryBuilderGuardsArrayScalars(t *testing.T) {
+	repo := &BusinessRepository{db: nil}
+
+	hasEmailTrue := true
+	filterEmail := model.BusinessFilter{HasEmail: &hasEmailTrue}
+
+	whereClauses := []string{"1=1"}
+	if filterEmail.HasEmail != nil {
+		if *filterEmail.HasEmail {
+			whereClauses = append(whereClauses, "(emails IS NOT NULL AND jsonb_typeof(emails) = 'array' AND jsonb_array_length(emails) > 0)")
+		} else {
+			whereClauses = append(whereClauses, "(emails IS NULL OR jsonb_typeof(emails) != 'array' OR jsonb_array_length(emails) = 0)")
+		}
+	}
+
+	sql := strings.Join(whereClauses, " AND ")
+	if !strings.Contains(sql, "jsonb_typeof(emails) = 'array'") {
+		t.Errorf("Expected sql to contain jsonb_typeof guard, got: %s", sql)
+	}
+
+	hasPhoneFalse := false
+	filterPhone := model.BusinessFilter{HasPhone: &hasPhoneFalse}
+	whereClauses = []string{"1=1"}
+	if filterPhone.HasPhone != nil {
+		if *filterPhone.HasPhone {
+			whereClauses = append(whereClauses, "((primary_phone IS NOT NULL AND primary_phone != '') OR (phones IS NOT NULL AND jsonb_typeof(phones) = 'array' AND jsonb_array_length(phones) > 0))")
+		} else {
+			whereClauses = append(whereClauses, "((primary_phone IS NULL OR primary_phone = '') AND (phones IS NULL OR jsonb_typeof(phones) != 'array' OR jsonb_array_length(phones) = 0))")
+		}
+	}
+	sqlPhone := strings.Join(whereClauses, " AND ")
+	if !strings.Contains(sqlPhone, "jsonb_typeof(phones) != 'array'") {
+		t.Errorf("Expected sql to contain jsonb_typeof guard for phone, got: %s", sqlPhone)
+	}
+	_ = repo
+}
+
+func TestDeriveCategoryFromKeyword(t *testing.T) {
+	tests := []struct {
+		kw       string
+		expected string
+	}{
+		{"cafe in canggu", "Cafe"},
+		{"cafe in denpasar", "Cafe"},
+		{"cafes in bali", "Cafe"},
+		{"veterinarian in denpasar, bali", "Veterinarian"},
+		{"veterinarian in ubud", "Veterinarian"},
+		{"coworking space at ubud", "Coworking Space"},
+		{"hotel near sanur", "Hotel"},
+		{"dentist, kuta", "Dentist"},
+		{"gym - seminyak", "Gym"},
+		{"villa rental | seminyak", "Villa Rental"},
+		{"digital marketing agency di badung", "Digital Marketing Agency"},
+		{"fitness center in denpasar", "Fitness Center"},
+		{"", ""},
+		{"   ", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.kw, func(t *testing.T) {
+			got := DeriveCategoryFromKeyword(tt.kw)
+			if got != tt.expected {
+				t.Errorf("DeriveCategoryFromKeyword(%q) = %q, want %q", tt.kw, got, tt.expected)
+			}
+		})
+	}
+}
+

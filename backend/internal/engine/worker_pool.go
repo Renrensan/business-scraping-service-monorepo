@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -87,7 +88,8 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 	slog.Info("Starting scrape job", "job_id", job.ID, "query", job.Query, "location", job.Location)
 	_ = wp.jobRepo.UpdateStatus(ctx, job.ID, model.JobStatusProcessing, 0, 0, 0, "")
 
-	searchQuery := gmaps.BuildSearchQuery(job.Query, job.Location, job.Category)
+	onlyNew, _ := job.Metadata["only_new_businesses"].(bool)
+	searchQuery := gmaps.BuildSearchQueryWithFilter(job.Query, job.Location, job.Category, onlyNew)
 
 	var leads []*model.BusinessLead
 	var err error
@@ -113,23 +115,94 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 		slog.Error("Extraction phase failed", "job_id", job.ID, "error", err)
 	}
 
+	totalScrapedRaw := len(leads)
+	slog.Info("Extracted listings before filter", "job_id", job.ID, "count", totalScrapedRaw)
+
+	// 1.1 Recency / Business Age Filter
+	recencyFilter, _ := job.Metadata["recency_filter"].(string)
+	if recencyFilter == "only_new" || (recencyFilter == "" && onlyNew) {
+		var filtered []*model.BusinessLead
+		for _, lead := range leads {
+			isNew := false
+			for _, sub := range lead.Subcategories {
+				if strings.EqualFold(sub, "New Business") {
+					isNew = true
+					break
+				}
+			}
+			if isNew || lead.BusinessStatus == "OPENING_SOON" {
+				filtered = append(filtered, lead)
+			}
+		}
+		slog.Info("Applied newly opened filter", "job_id", job.ID, "raw_count", totalScrapedRaw, "verified_new_count", len(filtered))
+		leads = filtered
+	} else if recencyFilter == "established" {
+		var filtered []*model.BusinessLead
+		for _, lead := range leads {
+			isNew := false
+			for _, sub := range lead.Subcategories {
+				if strings.EqualFold(sub, "New Business") {
+					isNew = true
+					break
+				}
+			}
+			if !isNew && lead.BusinessStatus != "OPENING_SOON" {
+				filtered = append(filtered, lead)
+			}
+		}
+		slog.Info("Applied established filter", "job_id", job.ID, "raw_count", totalScrapedRaw, "established_count", len(filtered))
+		leads = filtered
+	}
+	// Note: If recencyFilter == "any" (or empty without onlyNew), all places are kept.
+
+	// 1.2 Website Presence Filter
+	websiteFilter, _ := job.Metadata["website_filter"].(string)
+	requireWebsite, _ := job.Metadata["require_website"].(bool)
+	if websiteFilter == "require_website" || websiteFilter == "with_website" || (websiteFilter == "" && requireWebsite) {
+		var filtered []*model.BusinessLead
+		for _, lead := range leads {
+			if strings.TrimSpace(lead.Website) != "" {
+				filtered = append(filtered, lead)
+			}
+		}
+		slog.Info("Applied require website filter", "job_id", job.ID, "before", len(leads), "with_website", len(filtered))
+		leads = filtered
+	} else if websiteFilter == "no_website" || websiteFilter == "without_website" {
+		var filtered []*model.BusinessLead
+		for _, lead := range leads {
+			if strings.TrimSpace(lead.Website) == "" {
+				filtered = append(filtered, lead)
+			}
+		}
+		slog.Info("Applied no website filter", "job_id", job.ID, "before", len(leads), "without_website", len(filtered))
+		leads = filtered
+	}
+	// Note: If websiteFilter == "any" (or empty without requireWebsite), all places are kept.
+
 	totalScraped := len(leads)
 	totalEnriched := 0
 	errorCount := 0
-
-	slog.Info("Extracted listings", "job_id", job.ID, "count", totalScraped)
 
 	// 2. Storage & Upsert Phase
 	for _, lead := range leads {
 		lead.JobID = &job.ID
 		if lead.Category == "" || lead.Category == "Local Business" {
-			if job.Category != "" {
+			if job.Category != "" && !strings.EqualFold(job.Category, "all categories") && !strings.EqualFold(job.Category, "any business") {
 				lead.Category = job.Category
-			} else {
+			} else if job.Query != "" && !strings.EqualFold(job.Query, "businesses") {
 				lead.Category = job.Query
 			}
 		}
-		if err := wp.businessRepo.Upsert(ctx, lead); err != nil {
+
+		// Add query and category into subcategories so user filter always matches
+		if job.Query != "" && !strings.EqualFold(job.Query, "businesses") {
+			lead.Subcategories = append(lead.Subcategories, job.Query)
+		}
+		if job.Category != "" && !strings.EqualFold(job.Category, "all categories") && !strings.EqualFold(job.Category, "any business") && job.Category != job.Query {
+			lead.Subcategories = append(lead.Subcategories, job.Category)
+		}
+
+		if _, err := wp.businessRepo.Upsert(ctx, lead); err != nil {
 			slog.Error("Failed to upsert lead", "name", lead.Name, "error", err)
 			errorCount++
 		}

@@ -12,15 +12,41 @@ type GeoBoundingBox struct {
 }
 
 func BuildSearchQuery(keyword, location, category string) string {
+	return BuildSearchQueryWithFilter(keyword, location, category, false)
+}
+
+func BuildSearchQueryWithFilter(keyword, location, category string, newOnly bool) string {
 	var parts []string
-	if keyword != "" {
-		parts = append(parts, strings.TrimSpace(keyword))
+	cleanKeyword := strings.TrimSpace(keyword)
+	cleanLocation := strings.TrimSpace(location)
+	cleanCategory := strings.TrimSpace(category)
+
+	// If category is "All Categories", "Any Business", "All Businesses", ignore it
+	if strings.EqualFold(cleanCategory, "all categories") ||
+		strings.EqualFold(cleanCategory, "any business") ||
+		strings.EqualFold(cleanCategory, "all businesses") ||
+		strings.EqualFold(cleanCategory, "all") {
+		cleanCategory = ""
 	}
-	if category != "" && !strings.EqualFold(keyword, category) {
-		parts = append(parts, strings.TrimSpace(category))
+
+	if newOnly && !strings.Contains(strings.ToLower(cleanKeyword), "new") {
+		parts = append(parts, "newly opened")
 	}
-	if location != "" {
-		parts = append(parts, "in "+strings.TrimSpace(location))
+
+	if cleanKeyword != "" {
+		parts = append(parts, cleanKeyword)
+	}
+	if cleanCategory != "" && !strings.EqualFold(cleanKeyword, cleanCategory) {
+		parts = append(parts, cleanCategory)
+	}
+
+	// If no specific keyword or category is requested, default to "businesses"
+	if len(parts) == 0 || (len(parts) == 1 && parts[0] == "newly opened") {
+		parts = append(parts, "businesses")
+	}
+
+	if cleanLocation != "" {
+		parts = append(parts, "in "+cleanLocation)
 	}
 	return strings.Join(parts, " ")
 }

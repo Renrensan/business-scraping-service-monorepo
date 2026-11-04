@@ -25,3 +25,10 @@ test:
 
 clean:
 	rm -rf backend/bin frontend/build frontend/.svelte-kit
+
+docker-build:
+	mise run docker-build
+
+docker-push:
+	mise run docker-push
+

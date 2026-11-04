@@ -27,3 +27,15 @@ func (s *BusinessService) GetByID(ctx context.Context, id uuid.UUID) (*model.Bus
 func (s *BusinessService) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.businessRepo.Delete(ctx, id)
 }
+
+func (s *BusinessService) SetContacted(ctx context.Context, id uuid.UUID, contacted bool) error {
+	return s.businessRepo.SetContacted(ctx, id, contacted)
+}
+
+func (s *BusinessService) GetScrapeKeywords(ctx context.Context) ([]string, error) {
+	return s.businessRepo.GetScrapeKeywords(ctx)
+}
+
+func (s *BusinessService) GetDerivedCategories(ctx context.Context) ([]string, error) {
+	return s.businessRepo.GetDerivedCategories(ctx)
+}

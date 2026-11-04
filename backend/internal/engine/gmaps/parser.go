@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"time"
 
 	"business-scraping-service/backend/internal/model"
 )
@@ -94,7 +95,105 @@ func ParseRawPlaceData(data map[string]interface{}) *model.BusinessLead {
 		lead.PlaceID = fmt.Sprintf("place_%s_%f_%f", sanitizeKey(lead.Name), lead.Latitude, lead.Longitude)
 	}
 
+	// Evaluate Google native signals for newly opened / uploaded status
+	_, isNew := EvaluateNewBusiness(lead, data, false)
+	if isNew {
+		lead.Subcategories = append(lead.Subcategories, "New Business")
+	}
+
 	return lead
+}
+
+// EvaluateNewBusiness calculates a recency confidence score based directly on Google metadata
+func EvaluateNewBusiness(lead *model.BusinessLead, rawData map[string]interface{}, matchedNewQuery bool) (int, bool) {
+	score := 0
+
+	// 1. Google Business Status (OPENING_SOON = 100% pre-launch / grand opening)
+	if strings.EqualFold(lead.BusinessStatus, "OPENING_SOON") {
+		score += 100
+		return score, true
+	}
+
+	// 2. Google Editorial Summary / Description Launch Indicators
+	var summaryText string
+	if ed, ok := rawData["editorialSummary"].(map[string]interface{}); ok {
+		if txt, ok := ed["text"].(string); ok {
+			summaryText = txt
+		}
+	} else if desc, ok := rawData["description"].(string); ok {
+		summaryText = desc
+	}
+
+	if summaryText != "" {
+		lowerSum := strings.ToLower(summaryText)
+		launchKeywords := []string{
+			"newly opened", "grand opening", "soft opening", "just opened",
+			"opened in 202", "opened this", "new location", "brand new",
+			"coming soon", "now open",
+		}
+		for _, kw := range launchKeywords {
+			if strings.Contains(lowerSum, kw) {
+				score += 50
+				break
+			}
+		}
+	}
+
+	// 3. Earliest Review Timestamps / Relative Date Analysis
+	if reviews, ok := rawData["reviews"].([]interface{}); ok && len(reviews) > 0 {
+		hasOldReview := false
+		allRecent := true
+		now := time.Now().UTC()
+
+		for _, r := range reviews {
+			revMap, ok := r.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			// Check RFC3339 publishTime
+			if ptStr, ok := revMap["publishTime"].(string); ok && ptStr != "" {
+				if pt, err := time.Parse(time.RFC3339, ptStr); err == nil {
+					ageDays := now.Sub(pt).Hours() / 24
+					if ageDays > 180 {
+						hasOldReview = true
+						allRecent = false
+					} else if ageDays > 90 {
+						allRecent = false
+					}
+				}
+			}
+
+			// Check relative publish time description (e.g. "a year ago", "3 years ago")
+			if rel, ok := revMap["relativePublishTimeDescription"].(string); ok {
+				lowerRel := strings.ToLower(rel)
+				if strings.Contains(lowerRel, "year") ||
+					(strings.Contains(lowerRel, "month") && (strings.Contains(lowerRel, "4") || strings.Contains(lowerRel, "5") || strings.Contains(lowerRel, "6") || strings.Contains(lowerRel, "7") || strings.Contains(lowerRel, "8") || strings.Contains(lowerRel, "9") || strings.Contains(lowerRel, "10") || strings.Contains(lowerRel, "11"))) {
+					hasOldReview = true
+					allRecent = false
+				}
+			}
+		}
+
+		if !hasOldReview {
+			if allRecent {
+				score += 70
+			} else {
+				score += 30
+			}
+		}
+	} else if lead.ReviewCount == 0 {
+		// Zero reviews on a verified listing indicates a newly minted Google Maps pin
+		score += 40
+	}
+
+	// 4. Query modifier match from Google's recent index
+	if matchedNewQuery {
+		score += 30
+	}
+
+	isNew := score >= 50
+	return score, isNew
 }
 
 func parseAddressParts(lead *model.BusinessLead, address string) {

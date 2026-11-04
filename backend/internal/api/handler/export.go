@@ -25,6 +25,7 @@ func (h *ExportHandler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	filter := model.BusinessFilter{
 		Search:   q.Get("search"),
 		Category: q.Get("category"),
+		Keyword:  q.Get("keyword"),
 		City:     q.Get("city"),
 	}
 
@@ -32,9 +33,30 @@ func (h *ExportHandler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 		hasEmail := hasEmailStr == "true"
 		filter.HasEmail = &hasEmail
 	}
+	if hasPhoneStr := q.Get("has_phone"); hasPhoneStr != "" {
+		hasPhone := hasPhoneStr == "true"
+		filter.HasPhone = &hasPhone
+	}
+	if hasWebsiteStr := q.Get("has_website"); hasWebsiteStr != "" {
+		hasWebsite := hasWebsiteStr == "true"
+		filter.HasWebsite = &hasWebsite
+	}
+	if contactedStr := q.Get("contacted"); contactedStr != "" {
+		contacted := contactedStr == "true"
+		filter.Contacted = &contacted
+	}
 	if ratingStr := q.Get("min_rating"); ratingStr != "" {
 		if val, err := strconv.ParseFloat(ratingStr, 64); err == nil {
 			filter.MinRating = &val
+		}
+	}
+	if onlyNewStr := q.Get("only_new"); onlyNewStr != "" {
+		onlyNew := onlyNewStr == "true"
+		filter.OnlyNew = &onlyNew
+	}
+	if maxReviewsStr := q.Get("max_reviews"); maxReviewsStr != "" {
+		if val, err := strconv.Atoi(maxReviewsStr); err == nil {
+			filter.MaxReviews = &val
 		}
 	}
 

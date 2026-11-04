@@ -27,19 +27,19 @@
 
 {#if isOpen}
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
-    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl font-mono">
+    <div class="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
       <div class="flex items-center justify-between px-6 py-4 border-b border-zinc-800">
         <div class="flex items-center gap-2">
           <FileSpreadsheet class="w-4 h-4 text-emerald-400" />
-          <h2 class="text-base font-display font-light text-white">Export Filtered Leads</h2>
+          <h2 class="text-base font-semibold text-white">Export Filtered Leads</h2>
         </div>
-        <button onclick={onClose} class="text-zinc-500 hover:text-white transition cursor-pointer">
+        <button onclick={onClose} class="text-zinc-500 hover:text-white transition cursor-pointer" aria-label="Close export modal">
           <X class="w-4 h-4" />
         </button>
       </div>
 
       <div class="p-6 space-y-4 text-xs">
-        <p class="text-zinc-300">
+        <p class="text-zinc-300 leading-relaxed">
           Stream a consolidated CSV spreadsheet of all business leads and enriched contact records matching active filters.
         </p>
 

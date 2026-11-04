@@ -36,11 +36,19 @@ type ScrapeJob struct {
 }
 
 type CreateJobRequest struct {
-	Query          string `json:"query"`
-	Location       string `json:"location"`
-	Category       string `json:"category"`
-	MaxResults     int    `json:"max_results"`
-	EnrichContacts bool   `json:"enrich_contacts"`
-	Engine         string `json:"engine,omitempty"`
-	ApiKey         string `json:"api_key,omitempty"`
+	Query                string   `json:"query"`
+	Location             string   `json:"location"`
+	Category             string   `json:"category"`
+	Queries              []string `json:"queries,omitempty"`
+	Locations            []string `json:"locations,omitempty"`
+	Categories           []string `json:"categories,omitempty"`
+	MaxResults           int      `json:"max_results"`
+	EnrichContacts       bool     `json:"enrich_contacts"`
+	Engine               string   `json:"engine,omitempty"`
+	ApiKey               string   `json:"api_key,omitempty"`
+	OnlyNewBusinesses    bool     `json:"only_new_businesses,omitempty"`
+	RequireWebsite       bool     `json:"require_website,omitempty"`
+	WebsiteFilter        string   `json:"website_filter,omitempty"`
+	RecencyFilter        string   `json:"recency_filter,omitempty"`
+	MaxReviewCountForNew int      `json:"max_review_count_for_new,omitempty"`
 }

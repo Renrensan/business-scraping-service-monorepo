@@ -31,7 +31,7 @@ func (s *ExportService) ExportCSV(ctx context.Context, filter model.BusinessFilt
 	headers := []string{
 		"Name", "Category", "Address", "City", "State", "Postal Code", "Country",
 		"Phone", "Website", "Emails", "Secondary Phones", "Rating", "Review Count",
-		"Price Level", "Claimed", "Facebook", "Instagram", "LinkedIn", "Twitter",
+		"Price Level", "Claimed", "Contacted", "Facebook", "Instagram", "LinkedIn", "Twitter",
 		"YouTube", "TikTok", "Google Maps URL", "Latitude", "Longitude", "Place ID",
 	}
 	if err := writer.Write(headers); err != nil {
@@ -57,6 +57,7 @@ func (s *ExportService) ExportCSV(ctx context.Context, filter model.BusinessFilt
 			fmt.Sprintf("%d", l.ReviewCount),
 			l.PriceLevel,
 			fmt.Sprintf("%t", l.Claimed),
+			fmt.Sprintf("%t", l.Contacted),
 			l.FacebookURL,
 			l.InstagramURL,
 			l.LinkedinURL,

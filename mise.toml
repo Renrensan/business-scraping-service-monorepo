@@ -59,3 +59,39 @@ run = "cd frontend && pnpm check"
 [tasks.test]
 description = "Run all backend and frontend tests"
 depends = ["test-backend", "test-frontend"]
+
+# DOCKER PRODUCTION BUILD & PUSH (TARGET: LINUX)
+[tasks.docker-build-backend]
+description = "Build Linux Docker image for Go backend"
+run = "cd backend && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags=\"-w -s\" -o bin/server ./cmd/server/main.go && docker build --platform linux/amd64 -t renrensan/momos-scraper-backend:latest ."
+depends = ["check-docker"]
+
+
+[tasks.docker-build-frontend]
+description = "Build Linux Docker image for Svelte frontend"
+run = "cd frontend && pnpm build && docker build --platform linux/amd64 -t renrensan/momos-scraper-frontend:latest ."
+depends = ["check-docker"]
+
+
+[tasks.docker-build]
+description = "Build all Linux Docker images for production"
+depends = ["docker-build-backend", "docker-build-frontend"]
+
+[tasks.docker-push-backend]
+description = "Push backend Linux image to Docker Hub"
+run = "docker push renrensan/momos-scraper-backend:latest"
+depends = ["docker-build-backend"]
+
+[tasks.docker-push-frontend]
+description = "Push frontend Linux image to Docker Hub"
+run = "docker push renrensan/momos-scraper-frontend:latest"
+depends = ["docker-build-frontend"]
+
+[tasks.docker-push]
+description = "Build and push all Linux Docker images to Docker Hub"
+depends = ["docker-push-backend", "docker-push-frontend"]
+
+[tasks.docker-release]
+description = "Alias to build and push all Linux images to Docker Hub"
+depends = ["docker-push"]
+

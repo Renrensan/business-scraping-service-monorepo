@@ -1,10 +1,11 @@
 <script lang="ts">
   import { auth } from '$lib/stores/auth.svelte';
   import { toast } from 'svelte-sonner';
-  import { ArrowRight, Lock, User, ShieldCheck } from 'lucide-svelte';
+  import { ArrowRight, Lock, User, ShieldCheck, Eye, EyeOff } from 'lucide-svelte';
 
   let usernameOrEmail = $state('');
   let password = $state('');
+  let showPassword = $state(false);
   let isLoading = $state(false);
 
   async function handleLogin() {
@@ -64,12 +65,25 @@
             <Lock class="w-4 h-4 absolute left-3.5 top-2.5 text-zinc-500" />
             <input
               id="login-password"
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               bind:value={password}
               placeholder="••••••••••••"
               required
-              class="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-3.5 py-2.5 text-white placeholder:text-zinc-600 focus:outline-hidden focus:border-zinc-400 text-xs transition"
+              class="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-10 py-2.5 text-white placeholder:text-zinc-600 focus:outline-hidden focus:border-zinc-400 text-xs transition"
             />
+            <button
+              type="button"
+              onclick={() => (showPassword = !showPassword)}
+              class="absolute right-3 top-2.5 text-zinc-500 hover:text-zinc-300 transition cursor-pointer"
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              tabindex="-1"
+            >
+              {#if showPassword}
+                <EyeOff class="w-4 h-4" />
+              {:else}
+                <Eye class="w-4 h-4" />
+              {/if}
+            </button>
           </div>
         </div>
 

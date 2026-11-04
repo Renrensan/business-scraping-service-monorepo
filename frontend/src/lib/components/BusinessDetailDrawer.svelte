@@ -1,20 +1,46 @@
 <script lang="ts">
   import type { BusinessLead } from '$lib/types';
   import Badge from '$lib/components/Badge.svelte';
+  import { getWhatsAppUrl } from '$lib/utils/format';
+  import { api } from '$lib/api/client';
+  import { toast } from 'svelte-sonner';
   import { 
     X, MapPin, Phone, Globe, Star, Mail, 
-    Link2, ExternalLink 
+    Link2, ExternalLink, CheckCircle2, Circle, MessageSquare
   } from 'lucide-svelte';
 
   let {
     lead = null,
     isOpen = false,
-    onClose
+    onClose,
+    onToggleContacted
   }: {
     lead: BusinessLead | null;
     isOpen: boolean;
     onClose: () => void;
+    onToggleContacted?: (lead: BusinessLead, contacted: boolean) => void;
   } = $props();
+
+  let isUpdatingContacted = $state(false);
+
+  async function handleToggleContacted() {
+    if (!lead || isUpdatingContacted) return;
+    const targetStatus = !lead.contacted;
+    isUpdatingContacted = true;
+    try {
+      if (onToggleContacted) {
+        onToggleContacted(lead, targetStatus);
+      } else {
+        lead.contacted = targetStatus;
+        await api.patch(`/api/v1/businesses/${lead.id}/contacted`, { contacted: targetStatus });
+        toast.success(targetStatus ? `Marked "${lead.name}" as contacted` : `Unmarked "${lead.name}"`);
+      }
+    } catch (err) {
+      toast.error('Failed to update contacted status');
+    } finally {
+      isUpdatingContacted = false;
+    }
+  }
 </script>
 
 {#if isOpen && lead}
@@ -28,7 +54,7 @@
 
   <!-- Drawer Panel -->
   <aside 
-    class="fixed top-0 right-0 z-50 w-full max-w-md bg-zinc-950 border-l border-zinc-800 h-full p-6 flex flex-col justify-between overflow-y-auto shadow-2xl font-mono animate-in slide-in-from-right duration-150"
+    class="fixed top-0 right-0 z-50 w-full max-w-md bg-zinc-950 border-l border-zinc-800 h-full p-6 flex flex-col justify-between overflow-y-auto shadow-2xl animate-in slide-in-from-right duration-150"
   >
     <div>
       <div class="flex items-start justify-between pb-4 border-b border-zinc-800">
@@ -53,8 +79,39 @@
         </button>
       </div>
 
+      <!-- Quick Action: Contacted Status Toggle -->
+      <div class="mt-4 p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          {#if lead.contacted}
+            <CheckCircle2 class="w-4 h-4 text-emerald-400 shrink-0" />
+            <div>
+              <span class="text-xs font-medium text-emerald-400">Contacted</span>
+              <p class="text-[10px] text-zinc-500">Lead marked as contacted</p>
+            </div>
+          {:else}
+            <Circle class="w-4 h-4 text-zinc-500 shrink-0" />
+            <div>
+              <span class="text-xs font-medium text-zinc-300">Not Contacted</span>
+              <p class="text-[10px] text-zinc-500">Needs outreach or follow-up</p>
+            </div>
+          {/if}
+        </div>
+        <button
+          onclick={handleToggleContacted}
+          disabled={isUpdatingContacted}
+          class="px-3 py-1.5 rounded-lg border text-xs font-medium transition cursor-pointer flex items-center gap-1.5 {lead.contacted ? 'bg-zinc-900 border-zinc-700 text-zinc-300 hover:text-white hover:bg-zinc-800' : 'bg-emerald-600 hover:bg-emerald-500 text-white border-emerald-500 shadow-sm'}"
+        >
+          {#if lead.contacted}
+            <span>Unmark</span>
+          {:else}
+            <CheckCircle2 class="w-3.5 h-3.5" />
+            <span>Mark Contacted</span>
+          {/if}
+        </button>
+      </div>
+
       <!-- Details Info -->
-      <div class="mt-5 space-y-3.5 text-xs">
+      <div class="mt-4 space-y-3.5 text-xs">
         <!-- Address -->
         <div class="flex items-start gap-3 p-3 rounded-xl bg-black border border-zinc-800">
           <MapPin class="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
@@ -64,13 +121,56 @@
           </div>
         </div>
 
-        <!-- Primary Phone -->
-        <div class="flex items-start gap-3 p-3 rounded-xl bg-black border border-zinc-800">
-          <Phone class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-          <div>
-            <div class="text-zinc-500 text-[10px] uppercase tracking-wider">Primary Phone</div>
-            <div class="text-white font-mono mt-0.5">{lead.primary_phone || 'Not available'}</div>
+        <!-- Primary Phone with WhatsApp Link -->
+        <div class="p-3 rounded-xl bg-black border border-zinc-800">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-start gap-3">
+              <Phone class="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <div class="text-zinc-500 text-[10px] uppercase tracking-wider">Primary Phone</div>
+                <div class="text-white font-mono mt-0.5">{lead.primary_phone || 'Not available'}</div>
+              </div>
+            </div>
+            {#if getWhatsAppUrl(lead.primary_phone)}
+              <a
+                href={getWhatsAppUrl(lead.primary_phone)}
+                target="_blank"
+                rel="noreferrer"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-950 hover:bg-emerald-900 text-emerald-400 border border-emerald-800 text-xs font-medium transition shrink-0 cursor-pointer"
+                title="Chat on WhatsApp"
+              >
+                <MessageSquare class="w-3.5 h-3.5" />
+                <span>WhatsApp</span>
+                <ExternalLink class="w-3 h-3 text-emerald-400/80" />
+              </a>
+            {/if}
           </div>
+          <!-- Additional phones if present -->
+          {#if lead.phones && lead.phones.length > 1}
+            <div class="mt-2.5 pt-2 border-t border-zinc-800/80 space-y-1.5">
+              <div class="text-[10px] text-zinc-500 uppercase tracking-wider">Other Numbers</div>
+              <div class="flex flex-wrap gap-2">
+                {#each lead.phones as phone}
+                  {#if phone !== lead.primary_phone}
+                    <div class="flex items-center gap-1.5 bg-zinc-900 px-2 py-1 rounded border border-zinc-800 text-[11px] font-mono text-zinc-300">
+                      <span>{phone}</span>
+                      {#if getWhatsAppUrl(phone)}
+                        <a
+                          href={getWhatsAppUrl(phone)}
+                          target="_blank"
+                          rel="noreferrer"
+                          class="text-emerald-400 hover:text-emerald-300 ml-1 inline-flex items-center"
+                          title="Open WhatsApp chat"
+                        >
+                          <MessageSquare class="w-3 h-3" />
+                        </a>
+                      {/if}
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+            </div>
+          {/if}
         </div>
 
         <!-- Website -->

@@ -39,6 +39,8 @@ export interface BusinessLead {
   tiktok_url?: string;
   google_maps_url?: string;
   enrichment_status: "NONE" | "PENDING" | "SUCCESS" | "FAILED";
+  contacted?: boolean;
+  contacted_at?: string;
   last_scraped_at: string;
   last_enriched_at?: string;
   created_at: string;
@@ -64,6 +66,8 @@ export interface ScrapeJob {
 export interface OverviewMetrics {
   total_leads: number;
   enriched_leads: number;
+  leads_with_email?: number;
+  leads_with_phone?: number;
   email_hit_rate: number;
   phone_hit_rate: number;
   active_jobs: number;
@@ -73,6 +77,12 @@ export interface OverviewMetrics {
   countdown_seconds?: number;
   auto_schedule_enabled?: boolean;
   schedule_interval?: string;
+  only_new_businesses?: boolean;
+  require_website?: boolean;
+  website_filter?: 'any' | 'require_website' | 'no_website';
+  recency_filter?: 'any' | 'only_new' | 'established';
+  target_locations?: string[];
+  target_queries?: string[];
 }
 
 export interface ScheduleInfo {
@@ -83,4 +93,52 @@ export interface ScheduleInfo {
   auto_enabled: boolean;
   target_query: string;
   target_location: string;
+  target_category?: string;
+  target_queries?: string[];
+  target_locations?: string[];
+  target_categories?: string[];
+  only_new_businesses?: boolean;
+  require_website?: boolean;
+  website_filter?: 'any' | 'require_website' | 'no_website';
+  recency_filter?: 'any' | 'only_new' | 'established';
+  max_review_count_for_new?: number;
+  max_pages_per_run?: number;
+  page_size?: number;
+  max_results?: number;
+  enrich_contacts?: boolean;
+  engine?: string;
+}
+
+export interface ScraperKeyword {
+  id: string;
+  keyword: string;
+  next_page_token: string;
+  current_page: number;
+  total_leads_scraped: number;
+  last_scraped_at?: string;
+  status: 'ready' | 'processing' | 'paginating' | 'completed';
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListKeywordResponse {
+  items: ScraperKeyword[];
+  total_count: number;
+  total_pages: number;
+  page: number;
+  page_size: number;
+}
+
+export interface KeywordScrapeResult {
+  job_id?: string;
+  keyword: string;
+  leads_found?: number;
+  pages_traversed?: number;
+  next_page_token?: string;
+  status: 'ready' | 'processing' | 'paginating' | 'completed';
+  cycle_completed?: boolean;
+  current_page?: number;
+  total_leads_scraped?: number;
+  message?: string;
 }

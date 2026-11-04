@@ -1,0 +1,100 @@
+name: momos-scraper-prod
+
+services:
+  backend:
+    container_name: momos-scraper-backend-prod
+    image: ${BACKEND_IMAGE:-renrensan/momos-scraper-backend:latest}
+    restart: always
+    ports:
+      # Bound to localhost on port 8005 (avoids 8002, 8003, 8004, 8080, 8888, 8889)
+      - "127.0.0.1:${BACKEND_PORT:-8005}:8080"
+    env_file:
+      - .env.prod
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - momos_scraper_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:8080/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  frontend:
+    container_name: momos-scraper-frontend-prod
+    image: ${FRONTEND_IMAGE:-renrensan/momos-scraper-frontend:latest}
+    restart: always
+    environment:
+      PORT: 3000
+      HOST: 0.0.0.0
+      ORIGIN: ${FRONTEND_ORIGIN:-http://127.0.0.1:3004}
+      INTERNAL_BACKEND_URL: http://backend:8080
+    ports:
+      # Bound to localhost on port 3004 (avoids 3001, 3002, 3003)
+      - "127.0.0.1:${FRONTEND_PORT:-3004}:3000"
+    env_file:
+      - .env.prod
+    networks:
+      - momos_scraper_network
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://127.0.0.1:3000/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  postgres:
+    container_name: momos-scraper-postgres-prod
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-momos_scraper_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:-momos_scraper_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # Bound to localhost on port 5437 (avoids default 5432, 5435 paradapp, 5436 momos-client)
+      - "127.0.0.1:${POSTGRES_PORT:-5437}:5432"
+    networks:
+      - momos_scraper_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-momos_scraper_user} -d ${POSTGRES_DB:-momos_scraper_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    container_name: momos-scraper-redis-prod
+    image: redis:alpine
+    restart: always
+    command: ["redis-server", "--appendonly", "yes", "--loglevel", "warning"]
+    ports:
+      # Bound to localhost on port 6382 (avoids 6381, 6383, 6384, 6385)
+      - "127.0.0.1:${REDIS_PORT:-6382}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - momos_scraper_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+networks:
+  momos_scraper_network:
+    name: momos_scraper_prod_network
+    driver: bridge
+
+volumes:
+  postgres_data:
+    name: momos_scraper_postgres_prod_data
+  redis_data:
+    name: momos_scraper_redis_prod_data

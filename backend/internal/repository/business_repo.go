@@ -61,6 +61,16 @@ func normalizeDomain(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
+// sharedWebsiteHosts are domains many unrelated businesses list as their "website";
+// matching on them would merge different businesses into one row.
+var sharedWebsiteHosts = map[string]bool{
+	"facebook.com": true, "m.facebook.com": true, "fb.com": true, "fb.me": true,
+	"instagram.com": true, "tiktok.com": true, "twitter.com": true, "x.com": true,
+	"linkedin.com": true, "youtube.com": true, "linktr.ee": true, "wa.me": true,
+	"api.whatsapp.com": true, "whatsapp.com": true, "bit.ly": true, "google.com": true,
+	"sites.google.com": true, "business.site": true, "maps.google.com": true, "goo.gl": true,
+}
+
 func normalizePhoneDigits(raw string) string {
 	var sb strings.Builder
 	for _, r := range raw {
@@ -99,37 +109,48 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		lead.PlaceID = cleanPlaceID
 	}
 
-	// Step 1: Check for existing matching lead by place_id, website domain, phone digits, or name+location
+	// Shared hosts (social pages, link-in-bio, site builders) are not a business identity.
+	if sharedWebsiteHosts[cleanDomain] {
+		cleanDomain = ""
+	}
+	// Very short digit strings are too ambiguous to identify a business.
+	if len(cleanPhoneDigits) < 7 {
+		cleanPhoneDigits = ""
+	}
+
+	// Step 1: Check for existing matching lead by place_id, website domain, phone digits, or name+location.
+	// All comparisons are strict equality on non-empty values, and the strongest match wins.
+	// (A previous version used `$3 ILIKE '%' || <existing domain> || '%'`, which is always true
+	// when the existing row has no website, so new businesses overwrote unrelated rows — including
+	// their `contacted` flag, which made freshly scraped leads appear already checked.)
 	findQuery := `
-		SELECT id, place_id, cid, name, category, subcategories, address, street, city, state, 
-		       postal_code, country, latitude, longitude, rating, review_count, price_level, 
-		       claimed, business_status, website, primary_phone, emails, phones, facebook_url, 
-		       instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url, google_maps_url, 
+		SELECT id, place_id, cid, name, category, subcategories, address, street, city, state,
+		       postal_code, country, latitude, longitude, rating, review_count, price_level,
+		       claimed, business_status, website, primary_phone, emails, phones, facebook_url,
+		       instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url, google_maps_url,
 		       opening_hours, photos, enrichment_status, created_at
 		FROM business_leads
-		WHERE ($1 != '' AND place_id = $1)
-		   OR ($2 != '' AND (
-		       website = $2 
-		       OR ($3 != '' AND (website ILIKE '%' || $3 || '%' OR $3 ILIKE '%' || regexp_replace(regexp_replace(website, '^https?://(www\.)?', ''), '(/.*|\?.*|#.*)$', '') || '%'))
+		WHERE ($1::text != '' AND place_id = $1::text)
+		   OR ($2::text != '' AND
+		       regexp_replace(regexp_replace(regexp_replace(LOWER(TRIM(COALESCE(website, ''))),
+		           '^https?://', ''), '^www\.', ''), '[/?#].*$', '') = $2::text)
+		   OR ($3::text != '' AND regexp_replace(COALESCE(primary_phone, ''), '[^0-9]', '', 'g') = $3::text)
+		   OR ($4::text != '' AND LOWER(TRIM(name)) = LOWER($4::text) AND (
+		           ($5::text != '' AND LOWER(TRIM(city)) = LOWER($5::text))
+		        OR ($6::text != '' AND LOWER(TRIM(address)) = LOWER($6::text))
 		   ))
-		   OR ($4 != '' AND (
-		       primary_phone = $4 
-		       OR ($5 != '' AND regexp_replace(primary_phone, '[^0-9]', '', 'g') = $5)
-		   ))
-		   OR (
-		       $6 != '' AND LOWER(TRIM(name)) = LOWER(TRIM($6)) AND (
-		           ($7 != '' AND LOWER(TRIM(city)) = LOWER(TRIM($7)))
-		           OR ($8 != '' AND (LOWER(TRIM(address)) = LOWER(TRIM($8)) OR address ILIKE '%' || $8 || '%'))
-		           OR ($7 = '' AND $8 != '' AND address ILIKE '%' || $6 || '%')
-		       )
-		   )
+		ORDER BY CASE
+		    WHEN $1::text != '' AND place_id = $1::text THEN 0
+		    WHEN $4::text != '' AND LOWER(TRIM(name)) = LOWER($4::text) THEN 1
+		    ELSE 2
+		END, created_at
 		LIMIT 1
 	`
 
 	var existing model.BusinessLead
 	var subcatBytes, emailsBytes, phonesBytes, hoursBytes, photosBytes []byte
 
-	err := r.db.QueryRow(ctx, findQuery, cleanPlaceID, cleanWebsite, cleanDomain, cleanPhone, cleanPhoneDigits, cleanName, cleanCity, cleanAddress).Scan(
+	err := r.db.QueryRow(ctx, findQuery, cleanPlaceID, cleanDomain, cleanPhoneDigits, cleanName, cleanCity, cleanAddress).Scan(
 		&existing.ID, &existing.PlaceID, &existing.CID, &existing.Name, &existing.Category, &subcatBytes,
 		&existing.Address, &existing.Street, &existing.City, &existing.State, &existing.PostalCode,
 		&existing.Country, &existing.Latitude, &existing.Longitude, &existing.Rating, &existing.ReviewCount,

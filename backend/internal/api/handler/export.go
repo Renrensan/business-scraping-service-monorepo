@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"time"
 
-	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/service"
 	"business-scraping-service/backend/internal/utils"
 )
@@ -20,45 +19,7 @@ func NewExportHandler(exportSvc *service.ExportService) *ExportHandler {
 }
 
 func (h *ExportHandler) ExportCSV(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
-
-	filter := model.BusinessFilter{
-		Search:   q.Get("search"),
-		Category: q.Get("category"),
-		Keyword:  q.Get("keyword"),
-		City:     q.Get("city"),
-	}
-
-	if hasEmailStr := q.Get("has_email"); hasEmailStr != "" {
-		hasEmail := hasEmailStr == "true"
-		filter.HasEmail = &hasEmail
-	}
-	if hasPhoneStr := q.Get("has_phone"); hasPhoneStr != "" {
-		hasPhone := hasPhoneStr == "true"
-		filter.HasPhone = &hasPhone
-	}
-	if hasWebsiteStr := q.Get("has_website"); hasWebsiteStr != "" {
-		hasWebsite := hasWebsiteStr == "true"
-		filter.HasWebsite = &hasWebsite
-	}
-	if contactedStr := q.Get("contacted"); contactedStr != "" {
-		contacted := contactedStr == "true"
-		filter.Contacted = &contacted
-	}
-	if ratingStr := q.Get("min_rating"); ratingStr != "" {
-		if val, err := strconv.ParseFloat(ratingStr, 64); err == nil {
-			filter.MinRating = &val
-		}
-	}
-	if onlyNewStr := q.Get("only_new"); onlyNewStr != "" {
-		onlyNew := onlyNewStr == "true"
-		filter.OnlyNew = &onlyNew
-	}
-	if maxReviewsStr := q.Get("max_reviews"); maxReviewsStr != "" {
-		if val, err := strconv.Atoi(maxReviewsStr); err == nil {
-			filter.MaxReviews = &val
-		}
-	}
+	filter := parseBusinessFilter(r.URL.Query())
 
 	csvBytes, _, err := h.exportSvc.ExportCSV(r.Context(), filter)
 	if err != nil {
@@ -72,4 +33,32 @@ func (h *ExportHandler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(csvBytes)
+}
+
+// ExportWAContacts downloads the filtered leads as a Google Contacts CSV for WhatsApp.
+// Query params (besides the normal filters):
+//   mobile_only   default true  — skip leads that only have a landline
+//   status_prefix default false — name contacts "[HOT] Business Name"
+func (h *ExportHandler) ExportWAContacts(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	filter := parseBusinessFilter(q)
+	opts := service.WAExportOptions{
+		MobileOnly:   q.Get("mobile_only") != "false",
+		StatusPrefix: q.Get("status_prefix") == "true",
+	}
+
+	res, err := h.exportSvc.ExportWAContacts(r.Context(), filter, opts)
+	if err != nil {
+		utils.RespondError(w, http.StatusInternalServerError, "Failed to generate WhatsApp contacts: "+err.Error())
+		return
+	}
+
+	filename := fmt.Sprintf("wa_contacts_%s.csv", time.Now().Format("2006-01-02_150405"))
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
+	w.Header().Set("X-Export-Count", strconv.Itoa(res.Exported))
+	w.Header().Set("X-Export-Skipped", strconv.Itoa(res.Skipped))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(res.CSV)
 }

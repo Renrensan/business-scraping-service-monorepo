@@ -40,6 +40,7 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 		AllowedOrigins:   []string{cfg.FrontendURL, "https://admin.momos.asia", "http://admin.momos.asia", "http://localhost:5173", "http://localhost:3000", "http://127.0.0.1:5173", "http://127.0.0.1:3004"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
+		ExposedHeaders:   []string{"Content-Disposition", "X-Export-Count", "X-Export-Skipped"},
 		AllowCredentials: true,
 		MaxAge:           300,
 	}))
@@ -89,10 +90,12 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 			protected.Get("/businesses/categories", h.Business.GetCategories)
 			protected.Get("/businesses/{id}", h.Business.GetByID)
 			protected.Patch("/businesses/{id}/contacted", h.Business.PatchContacted)
+			protected.Patch("/businesses/{id}/status", h.Business.PatchStatus)
 			protected.Delete("/businesses/{id}", h.Business.Delete)
 
 			// Export
 			protected.Get("/export/csv", h.Export.ExportCSV)
+			protected.Get("/export/wa-contacts", h.Export.ExportWAContacts)
 
 			// System Settings & Scheduler
 			protected.Get("/system/settings", h.System.GetSettings)

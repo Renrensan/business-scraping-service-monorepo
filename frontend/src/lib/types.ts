@@ -6,6 +6,9 @@ export interface UserSession {
   lastActiveAt: string;
 }
 
+/** Admin-assigned temperature of a contacted lead. Not-contacted leads have no status. */
+export type LeadStatus = 'cold' | 'warm' | 'hot';
+
 export interface BusinessLead {
   id: string;
   job_id?: string;
@@ -41,6 +44,7 @@ export interface BusinessLead {
   enrichment_status: "NONE" | "PENDING" | "SUCCESS" | "FAILED";
   contacted?: boolean;
   contacted_at?: string;
+  lead_status?: LeadStatus | null;
   last_scraped_at: string;
   last_enriched_at?: string;
   created_at: string;

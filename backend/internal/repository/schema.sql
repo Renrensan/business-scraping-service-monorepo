@@ -117,6 +117,11 @@ ALTER TABLE business_leads ADD COLUMN IF NOT EXISTS contacted BOOLEAN NOT NULL D
 ALTER TABLE business_leads ADD COLUMN IF NOT EXISTS contacted_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_business_leads_contacted ON business_leads(contacted);
 
+-- Lead status (cold / warm / hot), set by the admin on contacted leads
+ALTER TABLE business_leads ADD COLUMN IF NOT EXISTS lead_status VARCHAR(10) CHECK (lead_status IN ('cold', 'warm', 'hot'));
+UPDATE business_leads SET lead_status = 'cold' WHERE contacted = true AND lead_status IS NULL;
+CREATE INDEX IF NOT EXISTS idx_business_leads_lead_status ON business_leads(lead_status);
+
 -- Repair any scalar or non-array jsonb values in business_leads
 UPDATE business_leads SET emails = '[]'::jsonb WHERE emails IS NULL OR jsonb_typeof(emails) != 'array';
 UPDATE business_leads SET phones = '[]'::jsonb WHERE phones IS NULL OR jsonb_typeof(phones) != 'array';

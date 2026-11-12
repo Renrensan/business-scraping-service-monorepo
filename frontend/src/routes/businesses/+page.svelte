@@ -2,11 +2,14 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
-  import type { BusinessLead } from '$lib/types';
+  import type { BusinessLead, LeadStatus } from '$lib/types';
   import Badge from '$lib/components/Badge.svelte';
   import Pagination from '$lib/components/Pagination.svelte';
   import BusinessDetailDrawer from '$lib/components/BusinessDetailDrawer.svelte';
   import ExportModal from '$lib/components/ExportModal.svelte';
+  import KeywordMultiSelect from '$lib/components/KeywordMultiSelect.svelte';
+  import LeadStatusFilter from '$lib/components/LeadStatusFilter.svelte';
+  import LeadStatusBadge from '$lib/components/LeadStatusBadge.svelte';
   import NewJobModal from '$lib/components/NewJobModal.svelte';
   import { getWhatsAppUrl } from '$lib/utils/format';
   import {
@@ -28,7 +31,8 @@
   // Filter states
   let search = $state('');
   let selectedCategory = $state('');
-  let selectedKeyword = $state('');
+  let selectedKeywords = $state<string[]>([]);
+  let selectedStatuses = $state<LeadStatus[]>([]);
   let minRating = $state<string>('');
   let hasEmail = $state(false);
   let hasPhone = $state(false);
@@ -50,7 +54,8 @@
         page_size: pageSize,
         search: search.trim() || undefined,
         category: selectedCategory || undefined,
-        keyword: selectedKeyword || undefined,
+        keywords: selectedKeywords,
+        status: selectedStatuses.length ? selectedStatuses.join(',') : undefined,
         min_rating: minRating ? Number(minRating) : undefined,
         has_email: hasEmail ? true : undefined,
         has_phone: hasPhone ? true : undefined,
@@ -77,13 +82,31 @@
 
   async function toggleContacted(lead: BusinessLead, checked: boolean) {
     const prev = lead.contacted;
+    const prevStatus = lead.lead_status;
     lead.contacted = checked;
+    lead.lead_status = checked ? (lead.lead_status ?? 'cold') : null;
     try {
       await api.patch(`/api/v1/businesses/${lead.id}/contacted`, { contacted: checked });
       toast.success(checked ? `Marked "${lead.name}" as contacted` : `Unmarked "${lead.name}"`);
     } catch (err) {
       lead.contacted = prev;
+      lead.lead_status = prevStatus;
       toast.error('Failed to update contacted status');
+    }
+  }
+
+  async function setStatus(lead: BusinessLead, status: LeadStatus) {
+    const prev = { contacted: lead.contacted, lead_status: lead.lead_status };
+    lead.lead_status = status;
+    lead.contacted = true;
+    try {
+      await api.patch(`/api/v1/businesses/${lead.id}/status`, { status });
+      toast.success(`"${lead.name}" is now ${status.toUpperCase()}`);
+      // Drop it from view if it no longer matches the active status filter
+      if (selectedStatuses.length && !selectedStatuses.includes(status)) fetchBusinesses();
+    } catch {
+      lead.contacted = prev.contacted;
+      lead.lead_status = prev.lead_status;
     }
   }
 
@@ -158,7 +181,7 @@
   <div class="bg-zinc-950 border border-zinc-800/90 rounded-2xl p-4 shadow-sm space-y-3.5">
 
     <!-- Top Row: Search, Keyword, Category, Rating -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-start">
       <!-- Search -->
       <div class="relative">
         <Search class="w-4 h-4 absolute left-3 top-2.5 text-zinc-500" />
@@ -171,17 +194,12 @@
         />
       </div>
 
-      <!-- Scrape Keyword — dynamic from DB -->
-      <select
-        bind:value={selectedKeyword}
-        onchange={() => { page = 1; fetchBusinesses(); }}
-        class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-zinc-200 focus:outline-hidden focus:border-zinc-500 text-xs cursor-pointer"
-      >
-        <option value="">All Scrape Keywords</option>
-        {#each availableKeywords as kw}
-          <option value={kw}>{kw}</option>
-        {/each}
-      </select>
+      <!-- Scrape Keywords (multi-select) — dynamic from DB -->
+      <KeywordMultiSelect
+        options={availableKeywords}
+        selected={selectedKeywords}
+        onChange={(kws) => { selectedKeywords = kws; page = 1; fetchBusinesses(); }}
+      />
 
       <!-- Category — dynamic from DB -->
       <select
@@ -259,6 +277,13 @@
         <Globe class="w-3.5 h-3.5 {hasWebsite ? 'text-emerald-400' : 'text-zinc-500'}" />
         <span>Has Website</span>
       </label>
+
+      <div class="hidden sm:block w-px h-5 bg-zinc-800 mx-1"></div>
+
+      <LeadStatusFilter
+        selected={selectedStatuses}
+        onChange={(sts) => { selectedStatuses = sts; page = 1; fetchBusinesses(); }}
+      />
     </div>
   </div>
 
@@ -315,9 +340,7 @@
                       {lead.name}
                     </button>
                     {#if lead.contacted}
-                      <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-950 border border-emerald-800 text-emerald-400 shrink-0">
-                        Contacted
-                      </span>
+                      <LeadStatusBadge status={lead.lead_status ?? 'cold'} />
                     {/if}
                   </div>
                   <div class="text-[11px] text-zinc-500 font-normal truncate">
@@ -420,6 +443,7 @@
   isOpen={showDrawer}
   onClose={() => (showDrawer = false)}
   onToggleContacted={(l, contacted) => toggleContacted(l, contacted)}
+  onStatusChange={(l, status) => setStatus(l, status)}
 />
 
 <ExportModal
@@ -428,7 +452,8 @@
   filterParams={{
     search,
     category: selectedCategory,
-    keyword: selectedKeyword,
+    keywords: selectedKeywords,
+    status: selectedStatuses.length ? selectedStatuses.join(',') : undefined,
     has_email: hasEmail ? true : undefined,
     has_phone: hasPhone ? true : undefined,
     has_website: hasWebsite ? true : undefined,

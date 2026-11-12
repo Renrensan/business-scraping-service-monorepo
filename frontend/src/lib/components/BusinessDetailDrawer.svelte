@@ -1,6 +1,8 @@
 <script lang="ts">
-  import type { BusinessLead } from '$lib/types';
+  import type { BusinessLead, LeadStatus } from '$lib/types';
   import Badge from '$lib/components/Badge.svelte';
+  import LeadStatusSelect from '$lib/components/LeadStatusSelect.svelte';
+  import { getLeadStatus } from '$lib/utils/leadStatus';
   import { getWhatsAppUrl } from '$lib/utils/format';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
@@ -13,13 +15,32 @@
     lead = null,
     isOpen = false,
     onClose,
-    onToggleContacted
+    onToggleContacted,
+    onStatusChange
   }: {
     lead: BusinessLead | null;
     isOpen: boolean;
     onClose: () => void;
     onToggleContacted?: (lead: BusinessLead, contacted: boolean) => void;
+    onStatusChange?: (lead: BusinessLead, status: LeadStatus) => void;
   } = $props();
+
+  async function handleStatusChange(status: LeadStatus) {
+    if (!lead) return;
+    if (onStatusChange) {
+      onStatusChange(lead, status);
+      return;
+    }
+    const prev = lead.lead_status;
+    lead.lead_status = status;
+    lead.contacted = true;
+    try {
+      await api.patch(`/api/v1/businesses/${lead.id}/status`, { status });
+      toast.success(`"${lead.name}" is now ${status.toUpperCase()}`);
+    } catch {
+      lead.lead_status = prev;
+    }
+  }
 
   let isUpdatingContacted = $state(false);
 
@@ -32,6 +53,7 @@
         onToggleContacted(lead, targetStatus);
       } else {
         lead.contacted = targetStatus;
+        lead.lead_status = targetStatus ? (lead.lead_status ?? 'cold') : null;
         await api.patch(`/api/v1/businesses/${lead.id}/contacted`, { contacted: targetStatus });
         toast.success(targetStatus ? `Marked "${lead.name}" as contacted` : `Unmarked "${lead.name}"`);
       }
@@ -86,7 +108,7 @@
             <CheckCircle2 class="w-4 h-4 text-emerald-400 shrink-0" />
             <div>
               <span class="text-xs font-medium text-emerald-400">Contacted</span>
-              <p class="text-[10px] text-zinc-500">Lead marked as contacted</p>
+              <p class="text-[10px] text-zinc-500">{getLeadStatus(lead.lead_status ?? 'cold')?.hint}</p>
             </div>
           {:else}
             <Circle class="w-4 h-4 text-zinc-500 shrink-0" />
@@ -109,6 +131,13 @@
           {/if}
         </button>
       </div>
+
+      {#if lead.contacted}
+        <div class="mt-2 p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 flex items-center justify-between gap-3">
+          <span class="text-[11px] uppercase tracking-wider text-zinc-500 font-semibold">Lead Status</span>
+          <LeadStatusSelect size="md" value={lead.lead_status ?? 'cold'} onChange={handleStatusChange} />
+        </div>
+      {/if}
 
       <!-- Details Info -->
       <div class="mt-4 space-y-3.5 text-xs">

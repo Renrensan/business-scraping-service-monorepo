@@ -38,6 +38,20 @@ function sanitizeErrorMessage(rawMsg: string, status: number): string {
   return rawMsg;
 }
 
+/** Builds a query string. Arrays become repeated keys (keywords=a&keywords=b); blanks are dropped. */
+function buildQuery(params: Record<string, any>): string {
+  const sp = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    const values = Array.isArray(v) ? v : [v];
+    values.forEach((item) => {
+      if (item !== undefined && item !== null && item !== '') {
+        sp.append(k, String(item));
+      }
+    });
+  });
+  return sp.toString();
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const reqId = generateRequestId();
   const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
@@ -107,13 +121,7 @@ export const api = {
   get: <T>(endpoint: string, params?: Record<string, any>, options?: RequestInit) => {
     let url = endpoint;
     if (params) {
-      const sp = new URLSearchParams();
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== '') {
-          sp.append(k, String(v));
-        }
-      });
-      const qs = sp.toString();
+      const qs = buildQuery(params);
       if (qs) url += (url.includes('?') ? '&' : '?') + qs;
     }
     return request<T>(url, { method: 'GET', ...options });
@@ -140,23 +148,23 @@ export const api = {
   delete: <T>(endpoint: string) =>
     request<T>(endpoint, { method: 'DELETE' }),
 
-  downloadCSV: async (endpoint: string, filename: string, params?: Record<string, any>) => {
+  /** Downloads a file. Resolves with the response headers, or null when the download failed. */
+  downloadCSV: async (
+    endpoint: string,
+    filename: string,
+    params?: Record<string, any>,
+    successMessage: string | null = 'CSV Download started'
+  ): Promise<Headers | null> => {
     let url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
     if (params) {
-      const sp = new URLSearchParams();
-      Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== '') {
-          sp.append(k, String(v));
-        }
-      });
-      const qs = sp.toString();
+      const qs = buildQuery(params);
       if (qs) url += (url.includes('?') ? '&' : '?') + qs;
     }
 
     const response = await fetch(url, { credentials: 'include' });
     if (!response.ok) {
       toast.error('Failed to download CSV export');
-      return;
+      return null;
     }
 
     const blob = await response.blob();
@@ -168,6 +176,7 @@ export const api = {
     a.click();
     a.remove();
     window.URL.revokeObjectURL(blobUrl);
-    toast.success('CSV Download started');
+    if (successMessage) toast.success(successMessage);
+    return response.headers;
   }
 };

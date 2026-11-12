@@ -381,7 +381,7 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 		       price_level, claimed, business_status, website, primary_phone, emails, phones,
 		       facebook_url, instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url,
 		       google_maps_url, opening_hours, photos, enrichment_status, last_scraped_at,
-		       last_enriched_at, contacted, contacted_at, created_at, updated_at
+		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at
 		FROM business_leads
 		WHERE id = $1
 	`
@@ -394,7 +394,7 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 		&lead.PriceLevel, &lead.Claimed, &lead.BusinessStatus, &lead.Website, &lead.PrimaryPhone, &emailsBytes, &phonesBytes,
 		&lead.FacebookURL, &lead.InstagramURL, &lead.LinkedinURL, &lead.TwitterURL, &lead.YoutubeURL, &lead.TiktokURL,
 		&lead.GoogleMapsURL, &hoursBytes, &photosBytes, &lead.EnrichmentStatus, &lead.LastScrapedAt,
-		&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.CreatedAt, &lead.UpdatedAt,
+		&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.LeadStatus, &lead.CreatedAt, &lead.UpdatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -417,15 +417,8 @@ func (r *BusinessRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return err
 }
 
-func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilter) (*model.BusinessListResponse, error) {
-	if filter.Page < 1 {
-		filter.Page = 1
-	}
-	if filter.PageSize < 1 || filter.PageSize > 100 {
-		filter.PageSize = 20
-	}
-	offset := (filter.Page - 1) * filter.PageSize
-
+// buildBusinessWhere turns a BusinessFilter into a SQL WHERE expression and its positional args.
+func buildBusinessWhere(filter model.BusinessFilter) (string, []interface{}) {
 	whereClauses := []string{"1=1"}
 	args := []interface{}{}
 	argIdx := 1
@@ -513,10 +506,24 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 		args = append(args, *filter.JobID)
 		argIdx++
 	}
-	if strings.TrimSpace(filter.Keyword) != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("(subcategories @> jsonb_build_array($%d::text) OR job_id IN (SELECT id FROM scrape_jobs WHERE query ILIKE $%d))", argIdx, argIdx))
-		args = append(args, strings.TrimSpace(filter.Keyword))
+	if keywords := cleanStrings(filter.Keywords); len(keywords) > 0 {
+		// A lead matches when it belongs to ANY of the selected scrape keywords.
+		whereClauses = append(whereClauses, fmt.Sprintf("(subcategories ?| $%d::text[] OR job_id IN (SELECT id FROM scrape_jobs WHERE query ILIKE ANY($%d::text[])))", argIdx, argIdx))
+		args = append(args, keywords)
 		argIdx++
+	}
+	if len(filter.Statuses) > 0 {
+		statuses := make([]string, 0, len(filter.Statuses))
+		for _, st := range filter.Statuses {
+			if st.Valid() {
+				statuses = append(statuses, string(st))
+			}
+		}
+		if len(statuses) > 0 {
+			whereClauses = append(whereClauses, fmt.Sprintf("lead_status = ANY($%d::text[])", argIdx))
+			args = append(args, statuses)
+			argIdx++
+		}
 	}
 	if filter.OnlyNew != nil {
 		maxReviews := 30
@@ -538,7 +545,36 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 		argIdx++
 	}
 
-	whereSQL := strings.Join(whereClauses, " AND ")
+	_ = argIdx
+	return strings.Join(whereClauses, " AND "), args
+}
+
+// cleanStrings trims entries and drops blanks and duplicates.
+func cleanStrings(in []string) []string {
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, v := range in {
+		v = strings.TrimSpace(v)
+		if v != "" && !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilter) (*model.BusinessListResponse, error) {
+	if filter.Page < 1 {
+		filter.Page = 1
+	}
+	if filter.PageSize < 1 || filter.PageSize > 100 {
+		filter.PageSize = 20
+	}
+	offset := (filter.Page - 1) * filter.PageSize
+
+	whereSQL, args := buildBusinessWhere(filter)
+	argIdx := len(args) + 1
+
 
 	// Count query
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM business_leads WHERE %s", whereSQL)
@@ -575,7 +611,7 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 		       price_level, claimed, business_status, website, primary_phone, emails, phones,
 		       facebook_url, instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url,
 		       google_maps_url, opening_hours, photos, enrichment_status, last_scraped_at,
-		       last_enriched_at, contacted, contacted_at, created_at, updated_at
+		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at
 		FROM business_leads
 		WHERE %s
 		ORDER BY %s %s
@@ -600,7 +636,7 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 			&lead.PriceLevel, &lead.Claimed, &lead.BusinessStatus, &lead.Website, &lead.PrimaryPhone, &emailsBytes, &phonesBytes,
 			&lead.FacebookURL, &lead.InstagramURL, &lead.LinkedinURL, &lead.TwitterURL, &lead.YoutubeURL, &lead.TiktokURL,
 			&lead.GoogleMapsURL, &hoursBytes, &photosBytes, &lead.EnrichmentStatus, &lead.LastScrapedAt,
-			&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.CreatedAt, &lead.UpdatedAt,
+			&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.LeadStatus, &lead.CreatedAt, &lead.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -724,17 +760,41 @@ func (r *BusinessRepository) GetLocationStats(ctx context.Context, limit int) ([
 	return stats, nil
 }
 
+// SetContacted ticks or unticks a lead. Ticking starts it as cold (keeping any status it
+// already has); unticking clears the status so it leaves the Leads pipeline.
 func (r *BusinessRepository) SetContacted(ctx context.Context, id uuid.UUID, contacted bool) error {
-	var contactedAt *time.Time
+	var err error
 	if contacted {
-		now := time.Now().UTC()
-		contactedAt = &now
+		_, err = r.db.Exec(ctx, `
+			UPDATE business_leads
+			SET contacted = true,
+			    contacted_at = COALESCE(contacted_at, NOW()),
+			    lead_status = COALESCE(lead_status, 'cold'),
+			    updated_at = NOW()
+			WHERE id = $1`, id)
+	} else {
+		_, err = r.db.Exec(ctx, `
+			UPDATE business_leads
+			SET contacted = false, contacted_at = NULL, lead_status = NULL, updated_at = NOW()
+			WHERE id = $1`, id)
 	}
-	_, err := r.db.Exec(ctx,
-		`UPDATE business_leads SET contacted = $1, contacted_at = $2, updated_at = NOW() WHERE id = $3`,
-		contacted, contactedAt, id,
-	)
 	return err
+}
+
+// SetLeadStatus sets cold/warm/hot. A lead with a status is always contacted.
+// Returns false when no lead has that id.
+func (r *BusinessRepository) SetLeadStatus(ctx context.Context, id uuid.UUID, status model.LeadStatus) (bool, error) {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE business_leads
+		SET lead_status = $1,
+		    contacted = true,
+		    contacted_at = COALESCE(contacted_at, NOW()),
+		    updated_at = NOW()
+		WHERE id = $2`, string(status), id)
+	if err != nil {
+		return false, err
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 func (r *BusinessRepository) GetScrapeKeywords(ctx context.Context) ([]string, error) {

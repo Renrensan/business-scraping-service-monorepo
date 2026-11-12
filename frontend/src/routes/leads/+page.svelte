@@ -2,15 +2,18 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
-  import type { BusinessLead } from '$lib/types';
+  import type { BusinessLead, LeadStatus } from '$lib/types';
   import Badge from '$lib/components/Badge.svelte';
   import Pagination from '$lib/components/Pagination.svelte';
   import BusinessDetailDrawer from '$lib/components/BusinessDetailDrawer.svelte';
   import ExportModal from '$lib/components/ExportModal.svelte';
+  import KeywordMultiSelect from '$lib/components/KeywordMultiSelect.svelte';
+  import LeadStatusFilter from '$lib/components/LeadStatusFilter.svelte';
+  import LeadStatusSelect from '$lib/components/LeadStatusSelect.svelte';
   import { getWhatsAppUrl } from '$lib/utils/format';
   import {
     Search, Download, Star,
-    Phone, Globe, Mail, RefreshCw, Eye, CheckCircle2, UserCheck, MessageSquare
+    Phone, Globe, Mail, RefreshCw, Eye, CheckCircle2, UserCheck, MessageSquare, UserMinus
   } from 'lucide-svelte';
 
   let leads = $state<BusinessLead[]>([]);
@@ -27,7 +30,8 @@
   // Filter states
   let search = $state('');
   let selectedCategory = $state('');
-  let selectedKeyword = $state('');
+  let selectedKeywords = $state<string[]>([]);
+  let selectedStatuses = $state<LeadStatus[]>([]);
   let minRating = $state<string>('');
   let hasEmail = $state(false);
   let hasPhone = $state(false);
@@ -49,7 +53,8 @@
         contacted: true, // Only fetch contacted / checked leads
         search: search.trim() || undefined,
         category: selectedCategory || undefined,
-        keyword: selectedKeyword || undefined,
+        keywords: selectedKeywords,
+        status: selectedStatuses.length ? selectedStatuses.join(',') : undefined,
         min_rating: minRating ? Number(minRating) : undefined,
         has_email: hasEmail ? true : undefined,
         has_phone: hasPhone ? true : undefined,
@@ -76,7 +81,9 @@
 
   async function toggleContacted(lead: BusinessLead, checked: boolean) {
     const prev = lead.contacted;
+    const prevStatus = lead.lead_status;
     lead.contacted = checked;
+    lead.lead_status = checked ? (lead.lead_status ?? 'cold') : null;
     try {
       await api.patch(`/api/v1/businesses/${lead.id}/contacted`, { contacted: checked });
       toast.success(checked ? `Marked "${lead.name}" as contacted` : `Removed "${lead.name}" from leads`);
@@ -84,7 +91,23 @@
       fetchLeads();
     } catch (err) {
       lead.contacted = prev;
+      lead.lead_status = prevStatus;
       toast.error('Failed to update contacted status');
+    }
+  }
+
+  async function setStatus(lead: BusinessLead, status: LeadStatus) {
+    const prev = { contacted: lead.contacted, lead_status: lead.lead_status };
+    lead.lead_status = status;
+    lead.contacted = true;
+    try {
+      await api.patch(`/api/v1/businesses/${lead.id}/status`, { status });
+      toast.success(`"${lead.name}" is now ${status.toUpperCase()}`);
+      // Drop it from view if it no longer matches the active status filter
+      if (selectedStatuses.length && !selectedStatuses.includes(status)) fetchLeads();
+    } catch {
+      lead.contacted = prev.contacted;
+      lead.lead_status = prev.lead_status;
     }
   }
 
@@ -158,7 +181,7 @@
   <div class="bg-zinc-950 border border-zinc-800/90 rounded-2xl p-4 shadow-sm space-y-3.5">
 
     <!-- Top Row: Search, Keyword, Category, Rating -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-start">
       <!-- Search -->
       <div class="relative">
         <Search class="w-4 h-4 absolute left-3 top-2.5 text-zinc-500" />
@@ -171,17 +194,12 @@
         />
       </div>
 
-      <!-- Scrape Keyword — dynamic from DB -->
-      <select
-        bind:value={selectedKeyword}
-        onchange={() => { page = 1; fetchLeads(); }}
-        class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-zinc-200 focus:outline-hidden focus:border-zinc-500 text-xs cursor-pointer"
-      >
-        <option value="">All Scrape Keywords</option>
-        {#each availableKeywords as kw}
-          <option value={kw}>{kw}</option>
-        {/each}
-      </select>
+      <!-- Scrape Keywords (multi-select) — dynamic from DB -->
+      <KeywordMultiSelect
+        options={availableKeywords}
+        selected={selectedKeywords}
+        onChange={(kws) => { selectedKeywords = kws; page = 1; fetchLeads(); }}
+      />
 
       <!-- Category — dynamic from DB -->
       <select
@@ -259,6 +277,13 @@
         <Globe class="w-3.5 h-3.5 {hasWebsite ? 'text-emerald-400' : 'text-zinc-500'}" />
         <span>Has Website</span>
       </label>
+
+      <div class="hidden sm:block w-px h-5 bg-zinc-800 mx-1"></div>
+
+      <LeadStatusFilter
+        selected={selectedStatuses}
+        onChange={(sts) => { selectedStatuses = sts; page = 1; fetchLeads(); }}
+      />
     </div>
   </div>
 
@@ -268,7 +293,7 @@
       <table class="w-full text-left text-xs">
         <thead class="bg-black border-b border-zinc-800 text-[11px] uppercase tracking-wider text-zinc-400 font-semibold">
           <tr>
-            <th class="px-4 py-3.5 w-12 text-center" title="Contacted status">Status</th>
+            <th class="px-4 py-3.5" title="Cold: no response · Warm: responded · Hot: interested">Status</th>
             <th class="px-4 py-3.5">Business Name</th>
             <th class="px-4 py-3.5">Category</th>
             <th class="px-4 py-3.5">Website</th>
@@ -289,6 +314,9 @@
           {:else if leads.length === 0}
             <tr>
               <td colspan="8" class="px-5 py-16 text-center text-zinc-500">
+                {#if selectedStatuses.length || selectedKeywords.length || search || selectedCategory || minRating || hasEmail || hasPhone || hasWebsite}
+                  No leads match your filters.
+                {:else}
                 <div class="max-w-xs mx-auto space-y-2">
                   <UserCheck class="w-8 h-8 text-zinc-600 mx-auto" />
                   <p class="text-zinc-400 font-medium">No checked leads yet</p>
@@ -296,20 +324,25 @@
                     Go to <a href="/businesses" class="text-white underline hover:text-zinc-300">Raw Data</a> and tick the "Done" checkbox for businesses you have contacted.
                   </p>
                 </div>
+                {/if}
               </td>
             </tr>
           {:else}
             {#each leads as lead}
               <tr class="hover:bg-zinc-900/40 transition bg-emerald-950/5">
-                <!-- Checkbox to uncheck if needed -->
-                <td class="px-4 py-3.5 text-center">
-                  <input
-                    type="checkbox"
-                    checked={lead.contacted ?? true}
-                    onchange={(e) => toggleContacted(lead, e.currentTarget.checked)}
-                    class="w-4 h-4 rounded border-zinc-700 bg-zinc-900 accent-emerald-500 cursor-pointer"
-                    title="Checked - Click to unmark and remove from Leads"
-                  />
+                <!-- Lead status: Cold / Warm / Hot, plus remove from pipeline -->
+                <td class="px-4 py-3.5">
+                  <div class="flex items-center gap-1.5">
+                    <LeadStatusSelect value={lead.lead_status ?? 'cold'} onChange={(st) => setStatus(lead, st)} />
+                    <button
+                      onclick={() => toggleContacted(lead, false)}
+                      class="p-1 rounded-md text-zinc-600 hover:text-rose-400 hover:bg-zinc-900 transition cursor-pointer"
+                      title="Not contacted — remove from Leads"
+                      aria-label="Remove {lead.name} from Leads"
+                    >
+                      <UserMinus class="w-3.5 h-3.5" />
+                    </button>
+                  </div>
                 </td>
 
                 <td class="px-4 py-3.5 font-medium max-w-xs truncate text-white">
@@ -320,9 +353,6 @@
                     >
                       {lead.name}
                     </button>
-                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-950 border border-emerald-800 text-emerald-400 shrink-0">
-                      Contacted
-                    </span>
                   </div>
                   <div class="text-[11px] text-zinc-500 font-normal truncate">
                     {lead.street || lead.address}
@@ -424,6 +454,7 @@
   isOpen={showDrawer}
   onClose={() => (showDrawer = false)}
   onToggleContacted={(l, contacted) => toggleContacted(l, contacted)}
+  onStatusChange={(l, status) => setStatus(l, status)}
 />
 
 <ExportModal
@@ -432,7 +463,8 @@
   filterParams={{
     search,
     category: selectedCategory,
-    keyword: selectedKeyword,
+    keywords: selectedKeywords,
+    status: selectedStatuses.length ? selectedStatuses.join(',') : undefined,
     has_email: hasEmail ? true : undefined,
     has_phone: hasPhone ? true : undefined,
     has_website: hasWebsite ? true : undefined,

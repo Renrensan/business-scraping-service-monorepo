@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -179,3 +180,61 @@ func TestDeriveCategoryFromKeyword(t *testing.T) {
 	}
 }
 
+
+func TestBuildBusinessWhereKeywordsAndStatus(t *testing.T) {
+	contacted := true
+	filter := model.BusinessFilter{
+		Search:    "kopi",
+		Contacted: &contacted,
+		Keywords:  []string{" cafe in canggu ", "", "villa in ubud", "cafe in canggu"},
+		Statuses:  []model.LeadStatus{model.LeadStatusWarm, "bogus", model.LeadStatusHot},
+	}
+
+	sql, args := buildBusinessWhere(filter)
+
+	if !strings.Contains(sql, "subcategories ?| $3::text[]") || !strings.Contains(sql, "query ILIKE ANY($3::text[])") {
+		t.Errorf("expected multi-keyword clause on $3, got: %s", sql)
+	}
+	if !strings.Contains(sql, "lead_status = ANY($4::text[])") {
+		t.Errorf("expected status clause on $4, got: %s", sql)
+	}
+	if len(args) != 4 {
+		t.Fatalf("expected 4 args, got %d: %#v", len(args), args)
+	}
+	kws, _ := args[2].([]string)
+	if len(kws) != 2 || kws[0] != "cafe in canggu" || kws[1] != "villa in ubud" {
+		t.Errorf("keywords should be trimmed and de-duplicated, got %#v", args[2])
+	}
+	sts, _ := args[3].([]string)
+	if len(sts) != 2 || sts[0] != "warm" || sts[1] != "hot" {
+		t.Errorf("invalid statuses should be dropped, got %#v", args[3])
+	}
+}
+
+func TestBuildBusinessWhereNoKeywordsNoStatus(t *testing.T) {
+	sql, args := buildBusinessWhere(model.BusinessFilter{Keywords: []string{"  "}})
+	if sql != "1=1" || len(args) != 0 {
+		t.Errorf("blank filters should add no clauses, got %q %#v", sql, args)
+	}
+}
+
+// The scrape upsert must never touch admin-owned columns, or a re-scrape would wipe
+// the contacted flag / lead status the admin set.
+func TestUpsertDoesNotTouchAdminColumns(t *testing.T) {
+	src, err := os.ReadFile("business_repo.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := string(src)
+	start := strings.Index(code, "func (r *BusinessRepository) Upsert(")
+	end := strings.Index(code, "func mergeUniqueStrings(")
+	if start < 0 || end < start {
+		t.Fatal("could not locate Upsert")
+	}
+	upsert := code[start:end]
+	for _, col := range []string{"lead_status", "contacted"} {
+		if strings.Contains(upsert, col+" =") || strings.Contains(upsert, col+",") {
+			t.Errorf("Upsert must not write %s", col)
+		}
+	}
+}

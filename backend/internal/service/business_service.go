@@ -32,6 +32,10 @@ func (s *BusinessService) SetContacted(ctx context.Context, id uuid.UUID, contac
 	return s.businessRepo.SetContacted(ctx, id, contacted)
 }
 
+func (s *BusinessService) SetLeadStatus(ctx context.Context, id uuid.UUID, status model.LeadStatus) (bool, error) {
+	return s.businessRepo.SetLeadStatus(ctx, id, status)
+}
+
 func (s *BusinessService) GetScrapeKeywords(ctx context.Context) ([]string, error) {
 	return s.businessRepo.GetScrapeKeywords(ctx)
 }

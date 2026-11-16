@@ -186,20 +186,18 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 	// 2. Storage & Upsert Phase
 	for _, lead := range leads {
 		lead.JobID = &job.ID
-		if lead.Category == "" || lead.Category == "Local Business" {
-			if job.Category != "" && !strings.EqualFold(job.Category, "all categories") && !strings.EqualFold(job.Category, "any business") {
-				lead.Category = job.Category
-			} else if job.Query != "" && !strings.EqualFold(job.Query, "businesses") {
-				lead.Category = job.Query
-			}
+		// Keep Google's category: never replace it with the search text, or every result of a
+		// search (hotels returned for "petshop") would be filed under that search's category.
+		if lead.Category == "" {
+			lead.Category = "Local Business"
 		}
 
-		// Add query and category into subcategories so user filter always matches
+		// Record which search found this lead, separately from its real categories.
 		if job.Query != "" && !strings.EqualFold(job.Query, "businesses") {
-			lead.Subcategories = append(lead.Subcategories, job.Query)
+			lead.ScrapeKeywords = append(lead.ScrapeKeywords, job.Query)
 		}
 		if job.Category != "" && !strings.EqualFold(job.Category, "all categories") && !strings.EqualFold(job.Category, "any business") && job.Category != job.Query {
-			lead.Subcategories = append(lead.Subcategories, job.Category)
+			lead.ScrapeKeywords = append(lead.ScrapeKeywords, job.Category)
 		}
 
 		if _, err := wp.businessRepo.Upsert(ctx, lead); err != nil {

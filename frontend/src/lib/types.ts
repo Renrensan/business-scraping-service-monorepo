@@ -17,6 +17,7 @@ export interface BusinessLead {
   name: string;
   category: string;
   subcategories?: string[];
+  scrape_keywords?: string[];
   address: string;
   street?: string;
   city: string;

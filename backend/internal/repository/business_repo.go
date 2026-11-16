@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 	"time"
 
@@ -128,7 +127,7 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		       postal_code, country, latitude, longitude, rating, review_count, price_level,
 		       claimed, business_status, website, primary_phone, emails, phones, facebook_url,
 		       instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url, google_maps_url,
-		       opening_hours, photos, enrichment_status, created_at
+		       opening_hours, photos, enrichment_status, created_at, scrape_keywords
 		FROM business_leads
 		WHERE ($1::text != '' AND place_id = $1::text)
 		   OR ($2::text != '' AND
@@ -148,7 +147,7 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 	`
 
 	var existing model.BusinessLead
-	var subcatBytes, emailsBytes, phonesBytes, hoursBytes, photosBytes []byte
+	var subcatBytes, emailsBytes, phonesBytes, hoursBytes, photosBytes, scrapeKwBytes []byte
 
 	err := r.db.QueryRow(ctx, findQuery, cleanPlaceID, cleanDomain, cleanPhoneDigits, cleanName, cleanCity, cleanAddress).Scan(
 		&existing.ID, &existing.PlaceID, &existing.CID, &existing.Name, &existing.Category, &subcatBytes,
@@ -158,6 +157,7 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		&existing.PrimaryPhone, &emailsBytes, &phonesBytes, &existing.FacebookURL, &existing.InstagramURL,
 		&existing.LinkedinURL, &existing.TwitterURL, &existing.YoutubeURL, &existing.TiktokURL,
 		&existing.GoogleMapsURL, &hoursBytes, &photosBytes, &existing.EnrichmentStatus, &existing.CreatedAt,
+		&scrapeKwBytes,
 	)
 
 	if err == nil {
@@ -165,14 +165,16 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		lead.ID = existing.ID
 		lead.CreatedAt = existing.CreatedAt
 
-		var existingEmails, existingPhones, existingSubcats []string
+		var existingEmails, existingPhones, existingSubcats, existingScrapeKws []string
 		_ = json.Unmarshal(emailsBytes, &existingEmails)
 		_ = json.Unmarshal(phonesBytes, &existingPhones)
 		_ = json.Unmarshal(subcatBytes, &existingSubcats)
+		_ = json.Unmarshal(scrapeKwBytes, &existingScrapeKws)
 
 		lead.Emails = mergeUniqueStrings(existingEmails, lead.Emails)
 		lead.Phones = mergeUniqueStrings(existingPhones, lead.Phones)
 		lead.Subcategories = mergeUniqueStrings(existingSubcats, lead.Subcategories)
+		lead.ScrapeKeywords = mergeUniqueStrings(existingScrapeKws, lead.ScrapeKeywords)
 
 		// Preserve non-empty fields if new one is blank
 		if lead.PlaceID == "" {
@@ -213,6 +215,7 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		}
 
 		subcatJSON := safeJSONArray(lead.Subcategories)
+		scrapeKwJSON := safeJSONArray(lead.ScrapeKeywords)
 		emailsJSON := safeJSONArray(lead.Emails)
 		phonesJSON := safeJSONArray(lead.Phones)
 		hoursJSON := safeJSONObject(lead.OpeningHours)
@@ -260,7 +263,8 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 				photos = $33,
 				enrichment_status = $34,
 				last_scraped_at = $35,
-				updated_at = $36
+				updated_at = $36,
+				scrape_keywords = $37
 			WHERE id = $1
 		`
 
@@ -270,6 +274,7 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 			lead.PriceLevel, lead.Claimed, lead.BusinessStatus, lead.Website, lead.PrimaryPhone, emailsJSON, phonesJSON,
 			lead.FacebookURL, lead.InstagramURL, lead.LinkedinURL, lead.TwitterURL, lead.YoutubeURL, lead.TiktokURL,
 			lead.GoogleMapsURL, hoursJSON, photosJSON, lead.EnrichmentStatus, lead.LastScrapedAt, lead.UpdatedAt,
+			scrapeKwJSON,
 		)
 		return false, updateErr
 	} else if !errors.Is(err, pgx.ErrNoRows) {
@@ -282,6 +287,7 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 	}
 
 	subcatJSON := safeJSONArray(lead.Subcategories)
+	scrapeKwJSON := safeJSONArray(lead.ScrapeKeywords)
 	emailsJSON := safeJSONArray(lead.Emails)
 	phonesJSON := safeJSONArray(lead.Phones)
 	hoursJSON := safeJSONObject(lead.OpeningHours)
@@ -294,14 +300,14 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 			price_level, claimed, business_status, website, primary_phone, emails, phones,
 			facebook_url, instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url,
 			google_maps_url, opening_hours, photos, enrichment_status, last_scraped_at,
-			last_enriched_at, created_at, updated_at
+			last_enriched_at, created_at, updated_at, scrape_keywords
 		) VALUES (
 			$1, $2, $3, $4, $5, $6, $7, $8, $9,
 			$10, $11, $12, $13, $14, $15, $16, $17,
 			$18, $19, $20, $21, $22, $23, $24,
 			$25, $26, $27, $28, $29, $30,
 			$31, $32, $33, $34, $35,
-			$36, $37, $38
+			$36, $37, $38, $39
 		)
 		ON CONFLICT (place_id) DO UPDATE SET
 			job_id = EXCLUDED.job_id,
@@ -328,7 +334,11 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 			opening_hours = EXCLUDED.opening_hours,
 			photos = EXCLUDED.photos,
 			last_scraped_at = EXCLUDED.last_scraped_at,
-			updated_at = EXCLUDED.updated_at
+			updated_at = EXCLUDED.updated_at,
+			scrape_keywords = COALESCE((
+				SELECT jsonb_agg(DISTINCT k)
+				FROM jsonb_array_elements_text(COALESCE(business_leads.scrape_keywords, '[]'::jsonb) || EXCLUDED.scrape_keywords) AS k
+			), '[]'::jsonb)
 	`
 
 	_, err = r.db.Exec(ctx, insertQuery,
@@ -337,7 +347,7 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		lead.PriceLevel, lead.Claimed, lead.BusinessStatus, lead.Website, lead.PrimaryPhone, emailsJSON, phonesJSON,
 		lead.FacebookURL, lead.InstagramURL, lead.LinkedinURL, lead.TwitterURL, lead.YoutubeURL, lead.TiktokURL,
 		lead.GoogleMapsURL, hoursJSON, photosJSON, lead.EnrichmentStatus, lead.LastScrapedAt,
-		lead.LastEnrichedAt, lead.CreatedAt, lead.UpdatedAt,
+		lead.LastEnrichedAt, lead.CreatedAt, lead.UpdatedAt, scrapeKwJSON,
 	)
 	if err != nil {
 		return false, err
@@ -381,12 +391,12 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 		       price_level, claimed, business_status, website, primary_phone, emails, phones,
 		       facebook_url, instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url,
 		       google_maps_url, opening_hours, photos, enrichment_status, last_scraped_at,
-		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at
+		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at, scrape_keywords
 		FROM business_leads
 		WHERE id = $1
 	`
 	var lead model.BusinessLead
-	var subcatBytes, emailsBytes, phonesBytes, hoursBytes, photosBytes []byte
+	var subcatBytes, emailsBytes, phonesBytes, hoursBytes, photosBytes, scrapeKwBytes []byte
 
 	err := r.db.QueryRow(ctx, query, id).Scan(
 		&lead.ID, &lead.JobID, &lead.PlaceID, &lead.CID, &lead.Name, &lead.Category, &subcatBytes, &lead.Address, &lead.Street,
@@ -394,7 +404,7 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 		&lead.PriceLevel, &lead.Claimed, &lead.BusinessStatus, &lead.Website, &lead.PrimaryPhone, &emailsBytes, &phonesBytes,
 		&lead.FacebookURL, &lead.InstagramURL, &lead.LinkedinURL, &lead.TwitterURL, &lead.YoutubeURL, &lead.TiktokURL,
 		&lead.GoogleMapsURL, &hoursBytes, &photosBytes, &lead.EnrichmentStatus, &lead.LastScrapedAt,
-		&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.LeadStatus, &lead.CreatedAt, &lead.UpdatedAt,
+		&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.LeadStatus, &lead.CreatedAt, &lead.UpdatedAt, &scrapeKwBytes,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -404,6 +414,7 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 	}
 
 	_ = json.Unmarshal(subcatBytes, &lead.Subcategories)
+	_ = json.Unmarshal(scrapeKwBytes, &lead.ScrapeKeywords)
 	_ = json.Unmarshal(emailsBytes, &lead.Emails)
 	_ = json.Unmarshal(phonesBytes, &lead.Phones)
 	_ = json.Unmarshal(hoursBytes, &lead.OpeningHours)
@@ -507,8 +518,8 @@ func buildBusinessWhere(filter model.BusinessFilter) (string, []interface{}) {
 		argIdx++
 	}
 	if keywords := cleanStrings(filter.Keywords); len(keywords) > 0 {
-		// A lead matches when it belongs to ANY of the selected scrape keywords.
-		whereClauses = append(whereClauses, fmt.Sprintf("(subcategories ?| $%d::text[] OR job_id IN (SELECT id FROM scrape_jobs WHERE query ILIKE ANY($%d::text[])))", argIdx, argIdx))
+		// A lead matches when ANY of the selected scrape keywords returned it.
+		whereClauses = append(whereClauses, fmt.Sprintf("(scrape_keywords ?| $%d::text[] OR job_id IN (SELECT id FROM scrape_jobs WHERE query ILIKE ANY($%d::text[])))", argIdx, argIdx))
 		args = append(args, keywords)
 		argIdx++
 	}
@@ -563,6 +574,7 @@ func cleanStrings(in []string) []string {
 	return out
 }
 
+// List returns one page of leads for the UI. Page size is capped at 100.
 func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilter) (*model.BusinessListResponse, error) {
 	if filter.Page < 1 {
 		filter.Page = 1
@@ -570,6 +582,11 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 	if filter.PageSize < 1 || filter.PageSize > 100 {
 		filter.PageSize = 20
 	}
+	return r.list(ctx, filter)
+}
+
+// list runs the filtered query with filter.Page/PageSize as given (no clamping).
+func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilter) (*model.BusinessListResponse, error) {
 	offset := (filter.Page - 1) * filter.PageSize
 
 	whereSQL, args := buildBusinessWhere(filter)
@@ -611,7 +628,7 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 		       price_level, claimed, business_status, website, primary_phone, emails, phones,
 		       facebook_url, instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url,
 		       google_maps_url, opening_hours, photos, enrichment_status, last_scraped_at,
-		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at
+		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at, scrape_keywords
 		FROM business_leads
 		WHERE %s
 		ORDER BY %s %s
@@ -628,7 +645,7 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 	var items []*model.BusinessLead
 	for rows.Next() {
 		var lead model.BusinessLead
-		var subcatBytes, emailsBytes, phonesBytes, hoursBytes, photosBytes []byte
+		var subcatBytes, emailsBytes, phonesBytes, hoursBytes, photosBytes, scrapeKwBytes []byte
 
 		if err := rows.Scan(
 			&lead.ID, &lead.JobID, &lead.PlaceID, &lead.CID, &lead.Name, &lead.Category, &subcatBytes, &lead.Address, &lead.Street,
@@ -636,12 +653,13 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 			&lead.PriceLevel, &lead.Claimed, &lead.BusinessStatus, &lead.Website, &lead.PrimaryPhone, &emailsBytes, &phonesBytes,
 			&lead.FacebookURL, &lead.InstagramURL, &lead.LinkedinURL, &lead.TwitterURL, &lead.YoutubeURL, &lead.TiktokURL,
 			&lead.GoogleMapsURL, &hoursBytes, &photosBytes, &lead.EnrichmentStatus, &lead.LastScrapedAt,
-			&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.LeadStatus, &lead.CreatedAt, &lead.UpdatedAt,
+			&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.LeadStatus, &lead.CreatedAt, &lead.UpdatedAt, &scrapeKwBytes,
 		); err != nil {
 			return nil, err
 		}
 
 		_ = json.Unmarshal(subcatBytes, &lead.Subcategories)
+		_ = json.Unmarshal(scrapeKwBytes, &lead.ScrapeKeywords)
 		_ = json.Unmarshal(emailsBytes, &lead.Emails)
 		_ = json.Unmarshal(phonesBytes, &lead.Phones)
 		_ = json.Unmarshal(hoursBytes, &lead.OpeningHours)
@@ -664,10 +682,15 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 	}, nil
 }
 
+// exportMaxRows is the safety cap on rows returned by a single export.
+const exportMaxRows = 10000
+
+// GetAllForExport returns every lead matching the filter (all pages), up to exportMaxRows.
 func (r *BusinessRepository) GetAllForExport(ctx context.Context, filter model.BusinessFilter) ([]*model.BusinessLead, error) {
 	filter.Page = 1
-	filter.PageSize = 10000 // safe max export limit
-	resp, err := r.List(ctx, filter)
+	filter.PageSize = exportMaxRows
+	// Call list directly: List clamps the page size to 100, which would cut exports short.
+	resp, err := r.list(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
@@ -861,25 +884,27 @@ func DeriveCategoryFromKeyword(kw string) string {
 	return derived
 }
 
+// GetDerivedCategories lists the real Google categories present in the data, for the Category filter.
+// (It used to derive them from scrape keyword names, but those never match Google's own naming —
+// "petshop" vs "Pet Store" — and pushed filtering onto the keyword tags instead.)
 func (r *BusinessRepository) GetDerivedCategories(ctx context.Context) ([]string, error) {
-	keywords, err := r.GetScrapeKeywords(ctx)
+	rows, err := r.db.Query(ctx, `
+		SELECT category FROM business_leads
+		WHERE TRIM(COALESCE(category, '')) != ''
+		GROUP BY category
+		ORDER BY category ASC
+	`)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	catMap := make(map[string]bool)
-	for _, kw := range keywords {
-		cat := DeriveCategoryFromKeyword(kw)
-		if cat != "" {
-			catMap[cat] = true
+	categories := []string{}
+	for rows.Next() {
+		var cat string
+		if err := rows.Scan(&cat); err == nil && cat != "" {
+			categories = append(categories, cat)
 		}
 	}
-
-	categories := make([]string, 0, len(catMap))
-	for cat := range catMap {
-		categories = append(categories, cat)
-	}
-
-	sort.Strings(categories)
-	return categories, nil
+	return categories, rows.Err()
 }

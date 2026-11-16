@@ -60,7 +60,7 @@ func (r *KeywordRepository) List(ctx context.Context, filter model.ListKeywordFi
 		           (
 		               SELECT COUNT(DISTINCT bl.id)
 		               FROM business_leads bl
-		               WHERE bl.subcategories @> jsonb_build_array(scraper_keywords.keyword)
+		               WHERE bl.scrape_keywords @> jsonb_build_array(scraper_keywords.keyword)
 		                  OR bl.job_id IN (SELECT sj.id FROM scrape_jobs sj WHERE sj.query = scraper_keywords.keyword)
 		           ),
 		           0
@@ -110,7 +110,7 @@ func (r *KeywordRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.S
 		           (
 		               SELECT COUNT(DISTINCT bl.id)
 		               FROM business_leads bl
-		               WHERE bl.subcategories @> jsonb_build_array(scraper_keywords.keyword)
+		               WHERE bl.scrape_keywords @> jsonb_build_array(scraper_keywords.keyword)
 		                  OR bl.job_id IN (SELECT sj.id FROM scrape_jobs sj WHERE sj.query = scraper_keywords.keyword)
 		           ),
 		           0
@@ -195,7 +195,7 @@ func (r *KeywordRepository) UpdateCursor(ctx context.Context, id uuid.UUID, next
 		        (
 		            SELECT COUNT(DISTINCT bl.id)
 		            FROM business_leads bl
-		            WHERE bl.subcategories @> jsonb_build_array(scraper_keywords.keyword)
+		            WHERE bl.scrape_keywords @> jsonb_build_array(scraper_keywords.keyword)
 		               OR bl.job_id IN (SELECT sj.id FROM scrape_jobs sj WHERE sj.query = scraper_keywords.keyword)
 		        ),
 		        total_leads_scraped + $3
@@ -240,7 +240,7 @@ func (r *KeywordRepository) GetByKeyword(ctx context.Context, keyword string) (*
 		           (
 		               SELECT COUNT(DISTINCT bl.id)
 		               FROM business_leads bl
-		               WHERE bl.subcategories @> jsonb_build_array(scraper_keywords.keyword)
+		               WHERE bl.scrape_keywords @> jsonb_build_array(scraper_keywords.keyword)
 		                  OR bl.job_id IN (SELECT sj.id FROM scrape_jobs sj WHERE sj.query = scraper_keywords.keyword)
 		           ),
 		           0

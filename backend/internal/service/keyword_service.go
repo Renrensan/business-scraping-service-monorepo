@@ -199,7 +199,7 @@ func (s *KeywordService) TriggerKeywordScrape(ctx context.Context, id uuid.UUID,
 				lead.Category = "Local Business"
 			}
 			lead.JobID = &targetJobID
-			lead.Subcategories = append(lead.Subcategories, targetKw.Keyword)
+			lead.ScrapeKeywords = append(lead.ScrapeKeywords, targetKw.Keyword)
 			wasNew, upsertErr := s.businessRepo.Upsert(bgCtx, lead)
 			if upsertErr != nil {
 				slog.Error("Failed to upsert lead from keyword scrape", "keyword", targetKw.Keyword, "name", lead.Name, "error", upsertErr)

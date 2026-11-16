@@ -293,7 +293,7 @@ func (s *Scheduler) runKeywordScrapes(
 				if strings.TrimSpace(lead.Category) == "" {
 					lead.Category = "Local Business"
 				}
-				lead.Subcategories = append(lead.Subcategories, kw.Keyword)
+				lead.ScrapeKeywords = append(lead.ScrapeKeywords, kw.Keyword)
 				if _, err := s.businessRepo.Upsert(ctx, lead); err != nil {
 					slog.Error("Failed to upsert lead from scheduled keyword scrape", "keyword", kw.Keyword, "name", lead.Name, "error", err)
 				}

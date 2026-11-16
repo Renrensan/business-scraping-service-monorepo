@@ -192,7 +192,7 @@ func TestBuildBusinessWhereKeywordsAndStatus(t *testing.T) {
 
 	sql, args := buildBusinessWhere(filter)
 
-	if !strings.Contains(sql, "subcategories ?| $3::text[]") || !strings.Contains(sql, "query ILIKE ANY($3::text[])") {
+	if !strings.Contains(sql, "scrape_keywords ?| $3::text[]") || !strings.Contains(sql, "query ILIKE ANY($3::text[])") {
 		t.Errorf("expected multi-keyword clause on $3, got: %s", sql)
 	}
 	if !strings.Contains(sql, "lead_status = ANY($4::text[])") {
@@ -235,6 +235,38 @@ func TestUpsertDoesNotTouchAdminColumns(t *testing.T) {
 	for _, col := range []string{"lead_status", "contacted"} {
 		if strings.Contains(upsert, col+" =") || strings.Contains(upsert, col+",") {
 			t.Errorf("Upsert must not write %s", col)
+		}
+	}
+}
+
+// Hotels returned by a "petshop" search must not show under the Petshop category:
+// the category filter looks only at Google's categories, never at scrape keyword tags,
+// and the keyword filter looks only at the scrape tags.
+func TestCategoryAndKeywordFiltersUseSeparateColumns(t *testing.T) {
+	catSQL, _ := buildBusinessWhere(model.BusinessFilter{Category: "Pet Store"})
+	if strings.Contains(catSQL, "scrape_keywords") {
+		t.Errorf("category filter must not match scrape keywords, got: %s", catSQL)
+	}
+	if !strings.Contains(catSQL, "category ILIKE") {
+		t.Errorf("category filter should match the category column, got: %s", catSQL)
+	}
+
+	kwSQL, _ := buildBusinessWhere(model.BusinessFilter{Keywords: []string{"petshop in canggu"}})
+	if strings.Contains(kwSQL, "subcategories") {
+		t.Errorf("keyword filter must not match Google categories, got: %s", kwSQL)
+	}
+}
+
+func TestUpsertPersistsScrapeKeywords(t *testing.T) {
+	src, err := os.ReadFile("business_repo.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := string(src)
+	upsert := code[strings.Index(code, "func (r *BusinessRepository) Upsert("):strings.Index(code, "func mergeUniqueStrings(")]
+	for _, want := range []string{"scrape_keywords = $37", "updated_at, scrape_keywords", "scrape_keywords = COALESCE(", "mergeUniqueStrings(existingScrapeKws"} {
+		if !strings.Contains(upsert, want) {
+			t.Errorf("Upsert should contain %q", want)
 		}
 	}
 }

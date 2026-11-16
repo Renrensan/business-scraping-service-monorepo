@@ -40,7 +40,8 @@ type BusinessLead struct {
 	CID              string                 `json:"cid"`
 	Name             string                 `json:"name"`
 	Category         string                 `json:"category"`
-	Subcategories    []string               `json:"subcategories"`
+	Subcategories    []string               `json:"subcategories"`   // Google's own place types only
+	ScrapeKeywords   []string               `json:"scrape_keywords"` // search keywords that returned this lead
 	Address          string                 `json:"address"`
 	Street           string                 `json:"street"`
 	City             string                 `json:"city"`

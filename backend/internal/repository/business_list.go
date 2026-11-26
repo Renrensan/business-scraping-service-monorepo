@@ -3,7 +3,6 @@ package repository
 // Listing leads: filters, sorting (including by scoring profile) and export.
 
 import (
-	"business-scraping-service/backend/internal/model"
 	"context"
 	"errors"
 	"fmt"
@@ -12,6 +11,8 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+
+	"business-scraping-service/backend/internal/model"
 )
 
 // buildBusinessWhere turns a BusinessFilter into a SQL WHERE expression and its positional args.
@@ -320,6 +321,10 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 		decodeForDisplay(photosBytes, &lead.Photos, "business_leads", lead.ID, "photos")
 
 		items = append(items, &lead)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	totalPages := int((totalCount + int64(filter.PageSize) - 1) / int64(filter.PageSize))

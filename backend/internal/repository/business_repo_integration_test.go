@@ -54,3 +54,24 @@ func TestGetByID_UnreadableListDoesNotFailTheRead(t *testing.T) {
 		t.Fatalf("list: %v %v", list, err)
 	}
 }
+
+func TestGetOverviewMetrics(t *testing.T) {
+	pool := testDB(t)
+	ctx := context.Background()
+	leads := NewBusinessRepository(pool)
+	for i, l := range []*model.BusinessLead{
+		{PlaceID: "p1", Name: "A", Address: "a", Emails: []string{"a@a.com"}, PrimaryPhone: "0811"},
+		{PlaceID: "p2", Name: "B", Address: "b"},
+	} {
+		if _, err := leads.Upsert(ctx, l); err != nil {
+			t.Fatal(i, err)
+		}
+	}
+	m, err := leads.GetOverviewMetrics(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.TotalLeads != 2 || m.LeadsWithEmail != 1 || m.LeadsWithPhone != 1 || m.EmailHitRate != 50 {
+		t.Errorf("metrics %+v", m)
+	}
+}

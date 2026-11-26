@@ -3,31 +3,36 @@ package repository
 // Dashboard metrics, scrape keywords and derived categories for leads.
 
 import (
-	"business-scraping-service/backend/internal/model"
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
+
+	"business-scraping-service/backend/internal/model"
 )
 
 func (r *BusinessRepository) GetOverviewMetrics(ctx context.Context) (*model.OverviewMetrics, error) {
 	var metrics model.OverviewMetrics
 
-	// Total leads
-	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM business_leads").Scan(&metrics.TotalLeads)
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COUNT(*) FILTER (WHERE emails IS NOT NULL AND jsonb_typeof(emails) = 'array' AND jsonb_array_length(emails) > 0),
+		       COUNT(*) FILTER (WHERE (primary_phone IS NOT NULL AND primary_phone != '')
+		                           OR (phones IS NOT NULL AND jsonb_typeof(phones) = 'array' AND jsonb_array_length(phones) > 0)),
+		       COUNT(*) FILTER (WHERE enrichment_status = 'SUCCESS')
+		FROM business_leads`).Scan(&metrics.TotalLeads, &metrics.LeadsWithEmail, &metrics.LeadsWithPhone, &metrics.EnrichedLeads)
+	if err != nil {
+		return nil, fmt.Errorf("counting leads: %w", err)
+	}
 
-	// Leads with email (check non-empty emails jsonb array)
-	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM business_leads WHERE emails IS NOT NULL AND jsonb_typeof(emails) = 'array' AND jsonb_array_length(emails) > 0").Scan(&metrics.LeadsWithEmail)
-
-	// Leads with phone (check primary_phone or non-empty phones jsonb array)
-	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM business_leads WHERE (primary_phone IS NOT NULL AND primary_phone != '') OR (phones IS NOT NULL AND jsonb_typeof(phones) = 'array' AND jsonb_array_length(phones) > 0)").Scan(&metrics.LeadsWithPhone)
-
-	// Enriched count (websites crawled successfully)
-	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM business_leads WHERE enrichment_status = 'SUCCESS'").Scan(&metrics.EnrichedLeads)
-
-	// Jobs stats
-	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM scrape_jobs WHERE status = 'PROCESSING'").Scan(&metrics.ActiveJobs)
-	_ = r.db.QueryRow(ctx, "SELECT COUNT(*) FROM scrape_jobs WHERE status = 'COMPLETED'").Scan(&metrics.CompletedJobs)
-	_ = r.db.QueryRow(ctx, "SELECT COALESCE(SUM(total_scraped), 0) FROM scrape_jobs").Scan(&metrics.TotalScrapedEver)
+	err = r.db.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE status = 'PROCESSING'),
+		       COUNT(*) FILTER (WHERE status = 'COMPLETED'),
+		       COALESCE(SUM(total_scraped), 0)
+		FROM scrape_jobs`).Scan(&metrics.ActiveJobs, &metrics.CompletedJobs, &metrics.TotalScrapedEver)
+	if err != nil {
+		return nil, fmt.Errorf("counting jobs: %w", err)
+	}
 
 	if metrics.TotalLeads > 0 {
 		metrics.EmailHitRate = (float64(metrics.LeadsWithEmail) / float64(metrics.TotalLeads)) * 100
@@ -63,7 +68,7 @@ func (r *BusinessRepository) GetCategoryStats(ctx context.Context, limit int) ([
 		}
 		stats = append(stats, &stat)
 	}
-	return stats, nil
+	return stats, rows.Err()
 }
 
 func (r *BusinessRepository) GetLocationStats(ctx context.Context, limit int) ([]*model.LocationStat, error) {
@@ -92,7 +97,7 @@ func (r *BusinessRepository) GetLocationStats(ctx context.Context, limit int) ([
 		}
 		stats = append(stats, &stat)
 	}
-	return stats, nil
+	return stats, rows.Err()
 }
 
 func (r *BusinessRepository) GetScrapeKeywords(ctx context.Context) ([]string, error) {
@@ -117,7 +122,7 @@ func (r *BusinessRepository) GetScrapeKeywords(ctx context.Context) ([]string, e
 			keywords = append(keywords, kw)
 		}
 	}
-	return keywords, nil
+	return keywords, rows.Err()
 }
 
 var locationSepRegex = regexp.MustCompile(`(?i)\s+(in|at|near|around|di)\s+|,|-|\|`)

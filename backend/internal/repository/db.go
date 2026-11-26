@@ -87,6 +87,9 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		applied[v] = true
 	}
 	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("reading applied migrations: %w", err)
+	}
 
 	names, err := fs.Glob(migrationFiles, "migrations/*.sql")
 	if err != nil {

@@ -10,10 +10,11 @@ import (
 	"strings"
 	"time"
 
+	"business-scraping-service/backend/internal/model"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"business-scraping-service/backend/internal/model"
 )
 
 type BusinessRepository struct {
@@ -592,7 +593,6 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 	whereSQL, args := buildBusinessWhere(filter)
 	argIdx := len(args) + 1
 
-
 	// Count query
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM business_leads WHERE %s", whereSQL)
 	var totalCount int64
@@ -907,4 +907,34 @@ func (r *BusinessRepository) GetDerivedCategories(ctx context.Context) ([]string
 		}
 	}
 	return categories, rows.Err()
+}
+
+// ListPendingEnrichment returns leads that should have been enriched but never were (their crawl was
+// interrupted): they have a website, enrichment status NONE or PENDING, were scraped more than
+// olderThan ago, and their job asked for enrichment.
+func (r *BusinessRepository) ListPendingEnrichment(ctx context.Context, olderThan time.Duration, limit int) ([]*model.BusinessLead, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT bl.id, bl.name, bl.website, bl.job_id
+		FROM business_leads bl
+		JOIN scrape_jobs j ON j.id = bl.job_id
+		WHERE bl.enrichment_status IN ('NONE', 'PENDING')
+		  AND COALESCE(bl.website, '') <> ''
+		  AND j.enrich_contacts = true
+		  AND bl.last_scraped_at < $1
+		ORDER BY bl.last_scraped_at
+		LIMIT $2`, time.Now().UTC().Add(-olderThan), limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var leads []*model.BusinessLead
+	for rows.Next() {
+		l := &model.BusinessLead{EnrichmentStatus: model.EnrichmentNone}
+		if err := rows.Scan(&l.ID, &l.Name, &l.Website, &l.JobID); err != nil {
+			return nil, err
+		}
+		leads = append(leads, l)
+	}
+	return leads, rows.Err()
 }

@@ -24,10 +24,12 @@ type SystemService struct {
 	workerPool  *engine.WorkerPool
 	scheduler   *engine.Scheduler
 	settings    *repository.SettingsRepository
+	quota       *engine.QuotaGuard
 }
 
-func NewSystemService(cfg *config.Config, dbPool *pgxpool.Pool, redisClient *redis.Client, workerPool *engine.WorkerPool, scheduler *engine.Scheduler, settings *repository.SettingsRepository) *SystemService {
+func NewSystemService(cfg *config.Config, dbPool *pgxpool.Pool, redisClient *redis.Client, workerPool *engine.WorkerPool, scheduler *engine.Scheduler, settings *repository.SettingsRepository, quota *engine.QuotaGuard) *SystemService {
 	return &SystemService{
+		quota:       quota,
 		settings:    settings,
 		cfg:         cfg,
 		dbPool:      dbPool,
@@ -86,6 +88,10 @@ func (s *SystemService) UpdateGoogleAPIKey(ctx context.Context, apiKey string) e
 	}
 	s.cfg.GooglePlacesAPIKey = apiKey
 	s.workerPool.SetGoogleAPIKey(apiKey)
+	// A new key may belong to a project with quota left: let scraping try again.
+	if s.quota != nil {
+		s.quota.Clear(ctx)
+	}
 	return nil
 }
 

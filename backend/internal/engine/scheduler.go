@@ -2,23 +2,23 @@ package engine
 
 import (
 	"context"
-	"github.com/google/uuid"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"business-scraping-service/backend/internal/config"
-	"business-scraping-service/backend/internal/engine/gmaps"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
 )
 
+// Scheduler queues a run of the saved keywords every interval. Its timing lives in scheduler_state,
+// so restarts don't move or skip runs, and ClaimDueRun makes sure only one instance starts each run.
 type Scheduler struct {
 	mu             sync.RWMutex
 	workerPool     *WorkerPool
-	jobRepo        *repository.JobRepository
-	businessRepo   *repository.BusinessRepository
+	queue          *JobQueue
+	state          *repository.SchedulerStateRepository
 	settingsRepo   *repository.SettingsRepository
 	keywordRepo    *repository.KeywordRepository
 	cfg            *config.Config
@@ -36,27 +36,20 @@ type Scheduler struct {
 
 func NewScheduler(
 	workerPool *WorkerPool,
-	jobRepo *repository.JobRepository,
-	businessRepo *repository.BusinessRepository,
+	queue *JobQueue,
+	state *repository.SchedulerStateRepository,
 	settingsRepo *repository.SettingsRepository,
 	keywordRepo *repository.KeywordRepository,
 	cfg *config.Config,
 ) *Scheduler {
-	now := time.Now().UTC()
-	nextMidnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
-	if nextMidnight.Sub(now) < 1*time.Hour {
-		nextMidnight = nextMidnight.Add(24 * time.Hour)
-	}
-
 	s := &Scheduler{
 		workerPool:     workerPool,
-		jobRepo:        jobRepo,
-		businessRepo:   businessRepo,
+		queue:          queue,
+		state:          state,
 		settingsRepo:   settingsRepo,
 		keywordRepo:    keywordRepo,
 		cfg:            cfg,
 		interval:       24 * time.Hour,
-		nextRunAt:      nextMidnight,
 		autoEnabled:    false,
 		maxPagesPerRun: 3,
 		pageSize:       20,
@@ -66,9 +59,12 @@ func NewScheduler(
 		stopChan:       make(chan struct{}),
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	if settingsRepo != nil {
 		var saved ScheduleInfo
-		if err := settingsRepo.Get(context.Background(), "bali_schedule", &saved); err == nil {
+		if err := settingsRepo.Get(ctx, "bali_schedule", &saved); err == nil {
 			if saved.IntervalHours > 0 {
 				s.interval = time.Duration(saved.IntervalHours) * time.Hour
 			}
@@ -83,6 +79,23 @@ func NewScheduler(
 			if saved.Engine != "" {
 				s.engine = saved.Engine
 			}
+		}
+	}
+
+	// Timing: use the persisted next run; on first start, schedule the next UTC midnight.
+	if st, err := state.Get(ctx); err != nil {
+		slog.Error("Failed to load scheduler state", "error", err)
+	} else {
+		s.lastRunAt = st.LastRunAt
+		if st.NextRunAt != nil {
+			s.nextRunAt = *st.NextRunAt
+		}
+	}
+	if s.nextRunAt.IsZero() {
+		now := time.Now().UTC()
+		s.nextRunAt = time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
+		if err := state.SetNextRun(ctx, s.nextRunAt); err != nil {
+			slog.Error("Failed to save scheduler next run", "error", err)
 		}
 	}
 
@@ -108,49 +121,63 @@ func (s *Scheduler) Start(ctx context.Context) {
 }
 
 func (s *Scheduler) checkAndTrigger(ctx context.Context, now time.Time) {
-	s.mu.Lock()
-	if !s.autoEnabled {
-		s.mu.Unlock()
+	// The database is the source of truth: another instance may have run or moved the schedule.
+	s.refreshTiming(ctx)
+
+	s.mu.RLock()
+	enabled := s.autoEnabled
+	due := !now.Before(s.nextRunAt)
+	interval := s.interval
+	maxPages, pageSize, enrich := s.maxPagesPerRun, s.pageSize, s.enrichContacts
+	s.mu.RUnlock()
+
+	if !enabled || !due {
 		return
 	}
 
-	if now.After(s.nextRunAt) || now.Equal(s.nextRunAt) {
-		slog.Info("Triggering scheduled auto scraper cycle for keywords", "time", now.Format(time.RFC3339))
-		s.lastRunAt = &now
-		s.nextRunAt = now.Add(s.interval)
-
-		maxPages := s.maxPagesPerRun
-		pageSize := s.pageSize
-		enrich := s.enrichContacts
-		eng := s.engine
-		s.mu.Unlock()
-
-		go s.runKeywordScrapes(ctx, nil, maxPages, pageSize, enrich, eng, now)
+	// While the quota is exhausted, wait: the run starts as soon as the quota resets.
+	if until, paused := s.queue.Quota().PausedUntil(now); paused {
+		slog.Debug("Scheduled run waiting for Places quota reset", "until", until)
 		return
 	}
-	s.mu.Unlock()
+
+	claimed, next, err := s.state.ClaimDueRun(ctx, now, interval)
+	if err != nil {
+		slog.Error("Failed to claim scheduled run", "error", err)
+		return
+	}
+	s.refreshTiming(ctx)
+	if !claimed {
+		return // another instance started it, or the schedule moved
+	}
+
+	slog.Info("Starting scheduled keyword run", "time", now.Format(time.RFC3339), "next_run_at", next)
+	s.queueKeywordRuns(ctx, nil, maxPages, pageSize, enrich)
 }
 
-func (s *Scheduler) runKeywordScrapes(
-	ctx context.Context,
-	queries []string,
-	maxPages int,
-	pageSize int,
-	enrich bool,
-	eng string,
-	now time.Time,
-) []*model.ScrapeJob {
-	if s.keywordRepo == nil {
-		slog.Warn("Keyword repository is nil, cannot run keyword scrape")
-		return nil
+// refreshTiming reloads next/last run from the database.
+func (s *Scheduler) refreshTiming(ctx context.Context) {
+	st, err := s.state.Get(ctx)
+	if err != nil {
+		slog.Error("Failed to load scheduler state", "error", err)
+		return
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastRunAt = st.LastRunAt
+	if st.NextRunAt != nil {
+		s.nextRunAt = *st.NextRunAt
+	}
+}
 
-	runner := s.workerPool.KeywordRunner()
-	if runner.APIKey() == "" {
+// queueKeywordRuns queues one run for each target keyword: the given queries (created if new), or
+// the active keywords, or (if none is active) all keywords. Keywords that are already queued or
+// running are skipped. Returns the jobs created.
+func (s *Scheduler) queueKeywordRuns(ctx context.Context, queries []string, maxPages, pageSize int, enrich bool) []*model.ScrapeJob {
+	if s.workerPool.KeywordRunner().APIKey() == "" {
 		slog.Error("Cannot run scheduled scrape: Google Places API key is not configured")
 		return nil
 	}
-
 	if maxPages <= 0 {
 		maxPages = 3
 	}
@@ -158,83 +185,57 @@ func (s *Scheduler) runKeywordScrapes(
 		pageSize = 20
 	}
 
-	// 2. Resolve target keywords
-	var targetKeywords []*model.ScraperKeyword
-
-	cleanQueries := []string{}
+	var targets []*model.ScraperKeyword
+	var cleanQueries []string
 	for _, q := range queries {
-		t := strings.TrimSpace(q)
-		if t != "" {
+		if t := strings.TrimSpace(q); t != "" {
 			cleanQueries = append(cleanQueries, t)
 		}
 	}
 
 	if len(cleanQueries) > 0 {
 		for _, q := range cleanQueries {
-			// Find or create keyword exactly
-			kw, _ := s.keywordRepo.GetByKeyword(ctx, q)
-			if kw == nil {
-				kw, _ = s.keywordRepo.Create(ctx, q)
+			kw, err := s.keywordRepo.GetByKeyword(ctx, q)
+			if err != nil || kw == nil {
+				kw, err = s.keywordRepo.Create(ctx, q)
 			}
-			if kw != nil {
-				targetKeywords = append(targetKeywords, kw)
+			if err != nil || kw == nil {
+				slog.Error("Failed to find or create keyword", "keyword", q, "error", err)
+				continue
 			}
+			targets = append(targets, kw)
 		}
 	} else {
-		// Load active / all keywords
 		kws, err := s.keywordRepo.GetActiveKeywords(ctx)
 		if err == nil && len(kws) > 0 {
-			targetKeywords = kws
+			targets = kws
 		} else {
-			allKws, _, _ := s.keywordRepo.List(ctx, model.ListKeywordFilter{
-				Page:     1,
-				PageSize: 100,
-			})
-			targetKeywords = allKws
+			// Existing behaviour: with no active keyword, run all of them.
+			allKws, _, _ := s.keywordRepo.List(ctx, model.ListKeywordFilter{Page: 1, PageSize: 100})
+			targets = allKws
 		}
 	}
 
-	if len(targetKeywords) == 0 {
+	if len(targets) == 0 {
 		slog.Info("No search keywords configured for auto scraper")
 		return nil
 	}
 
-	var createdJobs []*model.ScrapeJob
-
-	for _, kw := range targetKeywords {
-		_, curPage := StartPosition(kw)
-
-		job := &model.ScrapeJob{
-			ID:             uuid.New(),
-			Status:         model.JobStatusProcessing,
-			Query:          kw.Keyword,
-			Location:       "Google Maps",
-			Category:       "Local Business",
-			MaxResults:     maxPages * pageSize,
-			EnrichContacts: enrich,
-			Metadata: map[string]interface{}{
-				"source":       "auto_scraper_keyword",
-				"keyword_id":   kw.ID.String(),
-				"current_page": curPage,
-			},
-			CreatedAt: now,
-			UpdatedAt: now,
-		}
-		if err := s.jobRepo.Create(ctx, job); err != nil {
-			slog.Error("Failed to create scheduled job, skipping keyword", "keyword", kw.Keyword, "error", err)
+	var created []*model.ScrapeJob
+	skipped := 0
+	for _, kw := range targets {
+		job, err := s.queue.EnqueueKeyword(ctx, kw, KeywordRunOptions{MaxPages: maxPages, PageSize: pageSize, Enrich: enrich}, "auto_scraper_keyword")
+		if err != nil {
+			skipped++
+			if err != ErrKeywordBusy {
+				slog.Error("Failed to queue keyword", "keyword", kw.Keyword, "error", err)
+			}
 			continue
 		}
-		createdJobs = append(createdJobs, job)
-
-		_, err := runner.Run(ctx, kw, job.ID, KeywordRunOptions{MaxPages: maxPages, PageSize: pageSize, Enrich: enrich})
-		if err != nil && gmaps.IsQuotaError(err) {
-			// Every remaining keyword would fail the same way: stop and keep all cursors as they are.
-			slog.Warn("Places API quota exhausted, stopping scheduled run", "keyword", kw.Keyword, "skipped", len(targetKeywords)-len(createdJobs))
-			break
-		}
+		created = append(created, job)
 	}
-
-	return createdJobs
+	slog.Info("Queued keyword run", "queued", len(created), "skipped", skipped)
+	return created
 }
 
 type ScheduleInfo struct {
@@ -248,6 +249,7 @@ type ScheduleInfo struct {
 	MaxResults       int        `json:"max_results"`
 	EnrichContacts   bool       `json:"enrich_contacts"`
 	Engine           string     `json:"engine"`
+	QuotaPausedUntil *time.Time `json:"quota_paused_until,omitempty"`
 }
 
 func (s *Scheduler) GetScheduleInfo() ScheduleInfo {
@@ -280,7 +282,15 @@ func (s *Scheduler) GetScheduleInfo() ScheduleInfo {
 		MaxResults:       s.maxResults,
 		EnrichContacts:   s.enrichContacts,
 		Engine:           s.engine,
+		QuotaPausedUntil: s.quotaPausedUntil(now),
 	}
+}
+
+func (s *Scheduler) quotaPausedUntil(now time.Time) *time.Time {
+	if until, paused := s.queue.Quota().PausedUntil(now); paused {
+		return &until
+	}
+	return nil
 }
 
 func (s *Scheduler) UpdateSchedule(
@@ -325,6 +335,9 @@ func (s *Scheduler) UpdateSchedule(
 
 	now := time.Now().UTC()
 	s.nextRunAt = now.Add(s.interval)
+	if err := s.state.SetNextRun(context.Background(), s.nextRunAt); err != nil {
+		slog.Error("Failed to save scheduler next run", "error", err)
+	}
 
 	info := ScheduleInfo{
 		NextRunAt:        s.nextRunAt,
@@ -366,23 +379,21 @@ func (s *Scheduler) TriggerNow(
 	now := time.Now().UTC()
 	s.lastRunAt = &now
 	s.nextRunAt = now.Add(s.interval)
-
+	interval := s.interval
 	maxPages := s.maxPagesPerRun
 	pageSize := s.pageSize
-	eng := s.engine
 	s.mu.Unlock()
 
-	if engine != "" {
-		eng = engine
+	if err := s.state.MarkRunNow(ctx, now, interval); err != nil {
+		slog.Error("Failed to save scheduler run time", "error", err)
 	}
 	if maxResults > 0 {
 		maxPages = (maxResults + 19) / 20
 	}
 
-	jobs := s.runKeywordScrapes(ctx, queries, maxPages, pageSize, enrich, eng, now)
+	jobs := s.queueKeywordRuns(ctx, queries, maxPages, pageSize, enrich)
 	if len(jobs) > 0 {
 		return jobs[0], nil
 	}
-
 	return nil, nil
 }

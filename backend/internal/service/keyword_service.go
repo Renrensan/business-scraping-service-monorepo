@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"business-scraping-service/backend/internal/engine"
@@ -34,17 +34,20 @@ type TriggerScrapeOptions struct {
 type KeywordService struct {
 	keywordRepo *repository.KeywordRepository
 	jobRepo     *repository.JobRepository
+	queue       *engine.JobQueue
 	runner      *engine.KeywordRunner
 }
 
 func NewKeywordService(
 	keywordRepo *repository.KeywordRepository,
 	jobRepo *repository.JobRepository,
+	queue *engine.JobQueue,
 	runner *engine.KeywordRunner,
 ) *KeywordService {
 	return &KeywordService{
 		keywordRepo: keywordRepo,
 		jobRepo:     jobRepo,
+		queue:       queue,
 		runner:      runner,
 	}
 }
@@ -92,59 +95,38 @@ func (s *KeywordService) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.keywordRepo.Delete(ctx, id)
 }
 
+// ErrKeywordBusy is returned when the keyword already has a queued or running scrape.
+var ErrKeywordBusy = engine.ErrKeywordBusy
+
 func (s *KeywordService) TriggerKeywordScrape(ctx context.Context, id uuid.UUID, opts TriggerScrapeOptions) (*KeywordScrapeResult, error) {
 	kw, err := s.keywordRepo.GetByID(ctx, id)
-	if err != nil {
+	if err != nil || kw == nil {
 		return nil, fmt.Errorf("keyword not found: %w", err)
-	}
-	if kw.Status == model.KeywordStatusProcessing {
-		return nil, fmt.Errorf("keyword %q is already being scraped", kw.Keyword)
 	}
 	if s.runner.APIKey() == "" {
 		return nil, engine.ErrNoAPIKey
+	}
+	if until, paused := s.queue.Quota().PausedUntil(time.Now()); paused {
+		return nil, fmt.Errorf("google places api daily quota exceeded; scraping is paused until %s", until.Format("2006-01-02 15:04 MST"))
 	}
 
 	maxPages := opts.MaxPages
 	if maxPages <= 0 {
 		maxPages = 1
 	}
-	const pageSize = 20
 	_, startPage := engine.StartPosition(kw)
 
-	startTime := time.Now().UTC()
-	job := &model.ScrapeJob{
-		ID:             uuid.New(),
-		Status:         model.JobStatusProcessing,
-		Query:          kw.Keyword,
-		Location:       "Google Maps",
-		Category:       "Keyword Scrape",
-		MaxResults:     maxPages * pageSize,
-		EnrichContacts: opts.EnrichContacts,
-		StartedAt:      &startTime,
+	job, err := s.queue.EnqueueKeyword(ctx, kw, engine.KeywordRunOptions{
+		MaxPages: maxPages,
+		PageSize: 20,
+		Enrich:   opts.EnrichContacts,
+	}, "keyword_trigger")
+	if err != nil {
+		if errors.Is(err, engine.ErrKeywordBusy) {
+			return nil, fmt.Errorf("keyword %q is already being scraped: %w", kw.Keyword, err)
+		}
+		return nil, fmt.Errorf("failed to queue keyword scrape: %w", err)
 	}
-	if err := s.jobRepo.Create(ctx, job); err != nil {
-		return nil, fmt.Errorf("failed to create scrape job: %w", err)
-	}
-	if err := s.keywordRepo.SetStatus(ctx, kw.ID, model.KeywordStatusProcessing); err != nil {
-		return nil, fmt.Errorf("failed to mark keyword processing: %w", err)
-	}
-
-	// Run in the background so the UI is not blocked; the runner always leaves the job and keyword in a final state.
-	go func() {
-		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("panic recovered in keyword scrape worker", "keyword", kw.Keyword, "panic", r)
-				_ = s.keywordRepo.SetStatus(context.Background(), kw.ID, model.KeywordStatusReady)
-			}
-		}()
-		_, _ = s.runner.Run(bgCtx, kw, job.ID, engine.KeywordRunOptions{
-			MaxPages: maxPages,
-			PageSize: pageSize,
-			Enrich:   opts.EnrichContacts,
-		})
-	}()
 
 	return &KeywordScrapeResult{
 		JobID:             job.ID.String(),
@@ -152,6 +134,6 @@ func (s *KeywordService) TriggerKeywordScrape(ctx context.Context, id uuid.UUID,
 		Status:            model.KeywordStatusProcessing,
 		CurrentPage:       startPage,
 		TotalLeadsScraped: kw.TotalLeadsScraped,
-		Message:           "Scrape started in background",
+		Message:           "Scrape queued",
 	}, nil
 }

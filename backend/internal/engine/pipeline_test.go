@@ -76,7 +76,9 @@ func (f *fakeJobs) UpdateStatus(ctx context.Context, id uuid.UUID, s model.JobSt
 	f.updates = append(f.updates, jobUpdate{s, scraped, errs, msg})
 	return nil
 }
-func (f *fakeJobs) IncrementProgress(ctx context.Context, id uuid.UUID, a, b, c int) error { return nil }
+func (f *fakeJobs) IncrementProgress(ctx context.Context, id uuid.UUID, a, b, c int) error {
+	return nil
+}
 func (f *fakeJobs) last() jobUpdate {
 	f.mu.Lock()
 	defer f.mu.Unlock()

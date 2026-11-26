@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -29,6 +30,9 @@ type Config struct {
 	GooglePlacesAPIKey     string
 	// GooglePlacesBaseURL overrides the Places API host; only for local end-to-end tests with a fake server.
 	GooglePlacesBaseURL string
+	// ShutdownGrace is how long running jobs may keep going after SIGTERM before they are requeued.
+	// Keep it below the container's stop timeout (docker compose stop_grace_period).
+	ShutdownGrace time.Duration
 }
 
 func LoadConfig() (*Config, error) {
@@ -80,6 +84,7 @@ func LoadConfig() (*Config, error) {
 		SuperAdminUsername:     superAdminUsername,
 		SuperAdminPassword:     superAdminPassword,
 		GooglePlacesBaseURL:    cleanStr(getEnv("GOOGLE_PLACES_BASE_URL", "")),
+		ShutdownGrace:          time.Duration(getEnvInt("SHUTDOWN_GRACE_SECONDS", 25)) * time.Second,
 		MaxConcurrentScrapers:  maxScrapers,
 		MaxConcurrentEnrichers: maxEnrichers,
 		DefaultUserAgent:       defaultUA,

@@ -99,17 +99,32 @@ func main() {
 
 	// 8. Initialize Extraction & Enrichment Engine & Scheduler
 	workerPool := engine.NewWorkerPool(cfg, jobRepo, businessRepo, keywordRepo, redisCli)
-	scheduler := engine.NewScheduler(workerPool, jobRepo, businessRepo, settingsRepo, keywordRepo, cfg)
+
+	schedulerStateRepo := repository.NewSchedulerStateRepository(dbPool)
+	var quotaPausedUntil *time.Time
+	if st, err := schedulerStateRepo.Get(ctx); err != nil {
+		slog.Error("Failed to load scheduler state", "error", err)
+	} else {
+		quotaPausedUntil = st.QuotaPausedUntil
+	}
+	quota := engine.NewQuotaGuard(schedulerStateRepo, quotaPausedUntil)
+
+	jobQueue := engine.NewJobQueue(jobRepo, keywordRepo, businessRepo, workerPool, quota, engine.QueueOptions{
+		Workers: cfg.MaxConcurrentScrapers,
+	})
+	jobQueue.Start()
+
+	scheduler := engine.NewScheduler(workerPool, jobQueue, schedulerStateRepo, settingsRepo, keywordRepo, cfg)
 	scheduler.Start(ctx)
 
 	// 9. Initialize Services
 	authSvc := service.NewAuthService(adminRepo, sessionStore)
-	jobSvc := service.NewJobService(jobRepo, workerPool)
+	jobSvc := service.NewJobService(jobRepo, jobQueue)
 	businessSvc := service.NewBusinessService(businessRepo)
 	exportSvc := service.NewExportService(businessRepo)
 	metricsSvc := service.NewMetricsService(businessRepo, scheduler)
-	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler, settingsRepo)
-	keywordSvc := service.NewKeywordService(keywordRepo, jobRepo, workerPool.KeywordRunner())
+	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler, settingsRepo, quota)
+	keywordSvc := service.NewKeywordService(keywordRepo, jobRepo, jobQueue, workerPool.KeywordRunner())
 
 	// 10. Initialize Handlers
 	handlers := &api.Handlers{
@@ -137,21 +152,24 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
-	// 12. Graceful Shutdown Listener
+	// 12. Graceful Shutdown: stop taking requests, let running jobs finish (or requeue them), then exit.
+	shutdownDone := make(chan struct{})
 	go func() {
+		defer close(shutdownDone)
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT)
 		sig := <-sigChan
 
 		slog.Info("Shutdown signal received, shutting down gracefully...", "signal", sig.String())
 		server.SetKeepAlivesEnabled(false)
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 3*time.Second)
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			slog.Error("Error during HTTP server shutdown", "error", err)
 			_ = server.Close()
 		}
+		jobQueue.Shutdown(cfg.ShutdownGrace)
 		cancel()
 	}()
 
@@ -161,6 +179,7 @@ func main() {
 		os.Exit(1)
 	}
 
+	<-shutdownDone
 	slog.Info("Server stopped cleanly")
 }
 

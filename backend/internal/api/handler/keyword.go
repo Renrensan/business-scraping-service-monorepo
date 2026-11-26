@@ -2,15 +2,17 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/service"
 	"business-scraping-service/backend/internal/utils"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 type KeywordHandler struct {
@@ -97,7 +99,11 @@ func (h *KeywordHandler) Trigger(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.keywordSvc.TriggerKeywordScrape(r.Context(), id, opts)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, "Failed to trigger scrape: "+err.Error())
+		status := http.StatusInternalServerError
+		if errors.Is(err, service.ErrKeywordBusy) {
+			status = http.StatusConflict
+		}
+		utils.RespondError(w, status, "Failed to trigger scrape: "+err.Error())
 		return
 	}
 

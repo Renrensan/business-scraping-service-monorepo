@@ -16,6 +16,14 @@ const (
 	JobStatusCancelled  JobStatus = "CANCELLED"
 )
 
+// JobKind says which pipeline runs a queued job.
+type JobKind string
+
+const (
+	JobKindManual  JobKind = "manual"  // ad-hoc search from the New Job form (query + location + filters)
+	JobKindKeyword JobKind = "keyword" // one cursor run of a saved keyword
+)
+
 type ScrapeJob struct {
 	ID             uuid.UUID              `json:"id"`
 	Status         JobStatus              `json:"status"`
@@ -33,6 +41,9 @@ type ScrapeJob struct {
 	CompletedAt    *time.Time             `json:"completed_at,omitempty"`
 	CreatedAt      time.Time              `json:"created_at"`
 	UpdatedAt      time.Time              `json:"updated_at"`
+	Kind           JobKind                `json:"kind"`
+	KeywordID      *uuid.UUID             `json:"keyword_id,omitempty"`
+	Attempts       int                    `json:"attempts"`
 }
 
 type CreateJobRequest struct {

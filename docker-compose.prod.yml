@@ -5,6 +5,8 @@ services:
     container_name: momos-scraper-backend-prod
     image: ${BACKEND_IMAGE:-renrensan/momos-scraper-backend:latest}
     restart: always
+    # Running scrape jobs get SHUTDOWN_GRACE_SECONDS (25s) to finish on deploy, then are requeued.
+    stop_grace_period: 40s
     ports:
       # Bound to localhost on port 8005 (avoids 8002, 8003, 8004, 8080, 8888, 8889)
       - "127.0.0.1:${BACKEND_PORT:-8005}:8080"

@@ -7,10 +7,11 @@ import (
 	"strings"
 	"time"
 
+	"business-scraping-service/backend/internal/model"
+
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"business-scraping-service/backend/internal/model"
 )
 
 type KeywordRepository struct {
@@ -349,4 +350,22 @@ func (r *KeywordRepository) GetActiveKeywords(ctx context.Context) ([]*model.Scr
 		items = append(items, kw)
 	}
 	return items, nil
+}
+
+// RestoreOrphanedProcessing fixes keywords stuck in "processing" with no queued or running job
+// (for example after a crash before the queue existed). They go back to paginating or ready.
+func (r *KeywordRepository) RestoreOrphanedProcessing(ctx context.Context) (int, error) {
+	tag, err := r.db.Exec(ctx, `
+		UPDATE scraper_keywords k
+		SET status = CASE WHEN k.next_page_token <> '' THEN 'paginating' ELSE 'ready' END,
+		    updated_at = NOW()
+		WHERE k.status = 'processing'
+		  AND NOT EXISTS (
+		      SELECT 1 FROM scrape_jobs j
+		      WHERE j.keyword_id = k.id AND j.status IN ('PENDING', 'PROCESSING')
+		  )`)
+	if err != nil {
+		return 0, err
+	}
+	return int(tag.RowsAffected()), nil
 }

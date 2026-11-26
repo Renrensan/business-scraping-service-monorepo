@@ -27,7 +27,6 @@ type WorkerPool struct {
 	webClient    *gmaps.WebClient
 	enricher     *LeadEnricher
 	runner       *KeywordRunner
-	jobSem       chan struct{}
 
 	keyMu  sync.RWMutex
 	apiKey string
@@ -47,11 +46,6 @@ func NewWorkerPool(
 	webClient := gmaps.NewWebClient(rotator, cfg.DefaultUserAgent)
 	crawler := enrichment.NewCrawler(rotator, cfg.DefaultUserAgent)
 
-	maxScrapers := cfg.MaxConcurrentScrapers
-	if maxScrapers <= 0 {
-		maxScrapers = 5
-	}
-
 	wp := &WorkerPool{
 		cfg:          cfg,
 		jobRepo:      jobRepo,
@@ -59,7 +53,6 @@ func NewWorkerPool(
 		redisClient:  redisClient,
 		rotator:      rotator,
 		webClient:    webClient,
-		jobSem:       make(chan struct{}, maxScrapers),
 		apiKey:       cfg.GooglePlacesAPIKey,
 		newPlaces: func(key string) PlacesSearcher {
 			return gmaps.NewPlacesAPIClient(key)
@@ -92,19 +85,8 @@ func (wp *WorkerPool) SetProxies(proxies []string) {
 	wp.rotator.SetProxies(proxies)
 }
 
-func (wp *WorkerPool) SubmitJob(job *model.ScrapeJob) {
-	go func() {
-		wp.jobSem <- struct{}{}
-		defer func() { <-wp.jobSem }()
-
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-		defer cancel()
-
-		wp.processJob(ctx, job)
-	}()
-}
-
-func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
+// processJob runs a manual search job to completion and returns its final status and the fetch error, if any.
+func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) (model.JobStatus, error) {
 	slog.Info("Starting scrape job", "job_id", job.ID, "query", job.Query, "location", job.Location)
 	if err := wp.jobRepo.UpdateStatus(ctx, job.ID, model.JobStatusProcessing, 0, 0, 0, ""); err != nil {
 		slog.Error("Failed to mark job processing", "job_id", job.ID, "error", err)
@@ -225,6 +207,10 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 		slog.Error("Failed to update job status", "job_id", job.ID, "error", uerr)
 	}
 	slog.Info("Finished scrape job", "job_id", job.ID, "status", finalStatus, "scraped", ingest.Saved, "enriched", totalEnriched)
+	if finalStatus == model.JobStatusFailed && err == nil && ctx.Err() != nil {
+		err = ctx.Err()
+	}
+	return finalStatus, err
 }
 
 // manualJobOutcome decides a manual job's final status and message.

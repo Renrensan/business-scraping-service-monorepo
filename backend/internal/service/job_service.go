@@ -5,21 +5,22 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"business-scraping-service/backend/internal/engine"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
+
+	"github.com/google/uuid"
 )
 
 type JobService struct {
-	jobRepo    *repository.JobRepository
-	workerPool *engine.WorkerPool
+	jobRepo *repository.JobRepository
+	queue   *engine.JobQueue
 }
 
-func NewJobService(jobRepo *repository.JobRepository, workerPool *engine.WorkerPool) *JobService {
+func NewJobService(jobRepo *repository.JobRepository, queue *engine.JobQueue) *JobService {
 	return &JobService{
-		jobRepo:    jobRepo,
-		workerPool: workerPool,
+		jobRepo: jobRepo,
+		queue:   queue,
 	}
 }
 
@@ -108,11 +109,9 @@ func (s *JobService) CreateJob(ctx context.Context, req model.CreateJobRequest) 
 				UpdatedAt:      time.Now().UTC(),
 			}
 
-			if err := s.jobRepo.Create(ctx, job); err != nil {
-				return nil, fmt.Errorf("failed to insert scrape job: %w", err)
+			if err := s.queue.EnqueueManual(ctx, job); err != nil {
+				return nil, fmt.Errorf("failed to queue scrape job: %w", err)
 			}
-
-			s.workerPool.SubmitJob(job)
 
 			if firstJob == nil {
 				firstJob = job

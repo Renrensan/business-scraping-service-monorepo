@@ -180,7 +180,6 @@ func TestDeriveCategoryFromKeyword(t *testing.T) {
 	}
 }
 
-
 func TestBuildBusinessWhereKeywordsAndStatus(t *testing.T) {
 	contacted := true
 	filter := model.BusinessFilter{

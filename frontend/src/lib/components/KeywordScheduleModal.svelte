@@ -18,22 +18,13 @@
     onUpdated: () => void;
   } = $props();
 
-  let isScheduled = $state(true);
-  let intervalHours = $state(24);
-  let maxPagesPerRun = $state<1 | 2 | 3>(3);
-  let enrichContacts = $state(true);
+  // Form fields start from the props and are editable; they reset when the props change.
+  const toPages = (n: number | undefined): 1 | 2 | 3 => (n === 1 || n === 2 ? n : 3);
+  let isScheduled = $derived(keyword?.is_active ?? true);
+  let intervalHours = $derived(scheduleInfo?.interval_hours || 24);
+  let maxPagesPerRun = $derived(toPages(scheduleInfo?.max_pages_per_run));
+  let enrichContacts = $derived(scheduleInfo?.enrich_contacts ?? true);
   let isSaving = $state(false);
-
-  $effect(() => {
-    if (keyword) {
-      isScheduled = keyword.is_active ?? true;
-    }
-    if (scheduleInfo) {
-      intervalHours = scheduleInfo.interval_hours || 24;
-      maxPagesPerRun = (scheduleInfo.max_pages_per_run as any) || 3;
-      enrichContacts = scheduleInfo.enrich_contacts ?? true;
-    }
-  });
 
   async function handleSave() {
     if (!keyword) return;

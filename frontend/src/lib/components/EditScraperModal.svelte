@@ -16,15 +16,10 @@
     onUpdated: () => void;
   } = $props();
 
-  let editedQuery = $state('');
+  // Starts from the keyword and is editable; resets when a different keyword is opened.
+  let editedQuery = $derived(keyword?.keyword ?? '');
   let isSaving = $state(false);
   let isResetting = $state(false);
-
-  $effect(() => {
-    if (keyword) {
-      editedQuery = keyword.keyword;
-    }
-  });
 
   async function handleSave() {
     if (!keyword) return;

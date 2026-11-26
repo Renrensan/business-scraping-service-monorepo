@@ -13,15 +13,16 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"business-scraping-service/backend/internal/apperr"
 	"business-scraping-service/backend/internal/model"
 )
 
 var (
-	ErrProfileExists    = errors.New("a scoring profile with this name already exists")
-	ErrProfileNotFound  = errors.New("scoring profile not found")
-	ErrScoreNotFound    = errors.New("this lead has no score for that profile (the profile does not apply to it)")
-	ErrInvalidTier      = errors.New("tier must be hot, good, low or skip")
-	ErrInvalidGroupType = errors.New("invalid group type")
+	ErrProfileExists    = apperr.Conflict("a scoring profile with this name already exists")
+	ErrProfileNotFound  = apperr.NotFound("scoring profile not found")
+	ErrScoreNotFound    = apperr.NotFound("this lead has no score for that profile (the profile does not apply to it)")
+	ErrInvalidTier      = apperr.Invalid("tier must be hot, good, low or skip")
+	ErrInvalidGroupType = apperr.Invalid("invalid group type")
 )
 
 type ScoringRepository struct {

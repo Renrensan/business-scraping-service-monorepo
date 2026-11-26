@@ -44,7 +44,7 @@ func (h *SystemHandler) UpdateAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.systemSvc.UpdateGoogleAPIKey(r.Context(), req.ApiKey); err != nil {
-		utils.RespondError(w, http.StatusBadRequest, err.Error())
+		respondErr(w, r, err, "Failed to save API key")
 		return
 	}
 	utils.RespondSuccess(w, http.StatusOK, "API Key updated successfully", h.systemSvc.GetSettings())
@@ -172,7 +172,7 @@ func (h *SystemHandler) TriggerImmediateScrape(w http.ResponseWriter, r *http.Re
 		req.MaxReviewCountForNew,
 	)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, err.Error())
+		respondErr(w, r, err, "Failed to start scrape")
 		return
 	}
 
@@ -190,7 +190,7 @@ func (h *SystemHandler) UpdatePlacesBudget(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := h.systemSvc.SetPlacesBudget(r.Context(), req.DailyBudget); err != nil {
-		utils.RespondError(w, http.StatusBadRequest, err.Error())
+		respondErr(w, r, err, "Failed to save daily budget")
 		return
 	}
 	utils.RespondSuccess(w, http.StatusOK, "Daily budget updated", h.systemSvc.GetSettings())
@@ -199,7 +199,7 @@ func (h *SystemHandler) UpdatePlacesBudget(w http.ResponseWriter, r *http.Reques
 func (h *SystemHandler) GetScrapeHealth(w http.ResponseWriter, r *http.Request) {
 	health, err := h.systemSvc.ScrapeHealth(r.Context())
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, "Failed to load scrape health: "+err.Error())
+		respondErr(w, r, err, "Failed to load scrape health")
 		return
 	}
 	utils.RespondJSON(w, http.StatusOK, health)

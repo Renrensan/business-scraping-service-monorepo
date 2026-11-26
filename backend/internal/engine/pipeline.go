@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"business-scraping-service/backend/internal/apperr"
 	"business-scraping-service/backend/internal/engine/enrichment"
 	"business-scraping-service/backend/internal/engine/gmaps"
 	"business-scraping-service/backend/internal/model"
@@ -287,7 +288,7 @@ func StartPosition(kw *model.ScraperKeyword) (token string, page int) {
 	return kw.NextPageToken, page
 }
 
-var ErrNoAPIKey = errors.New("google places api key is not configured")
+var ErrNoAPIKey = apperr.Invalid("google places api key is not configured")
 
 // Run scrapes one keyword for a job that already exists, and always leaves the job in a final state
 // (COMPLETED or FAILED). On a fetch error the keyword's cursor is left untouched so the next run

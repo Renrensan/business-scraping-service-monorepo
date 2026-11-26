@@ -3,7 +3,6 @@ package repository
 import (
 	"context"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
@@ -11,12 +10,13 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"business-scraping-service/backend/internal/apperr"
 	"business-scraping-service/backend/internal/model"
 )
 
 var (
-	ErrAreaExists = errors.New("an area with this name already exists")
-	ErrAreaInUse  = errors.New("area is used by keywords")
+	ErrAreaExists = apperr.Conflict("an area with this name already exists")
+	ErrAreaInUse  = apperr.Conflict("area is used by keywords; delete them first")
 )
 
 type AreaRepository struct {
@@ -74,13 +74,13 @@ func (r *AreaRepository) GetByName(ctx context.Context, name string) (*model.Are
 func (r *AreaRepository) Create(ctx context.Context, a *model.Area) error {
 	a.Name = strings.TrimSpace(a.Name)
 	if a.Name == "" {
-		return fmt.Errorf("area name is required")
+		return apperr.Invalid("area name is required")
 	}
 	if !(a.LowLat < a.HighLat && a.LowLng < a.HighLng) {
-		return fmt.Errorf("area corners are invalid: south-west must be below and left of north-east")
+		return apperr.Invalid("area corners are invalid: south-west must be below and left of north-east")
 	}
 	if a.LowLat < -90 || a.HighLat > 90 || a.LowLng < -180 || a.HighLng > 180 {
-		return fmt.Errorf("area coordinates are out of range")
+		return apperr.Invalid("area coordinates are out of range")
 	}
 	if a.Source == "" {
 		a.Source = "manual"

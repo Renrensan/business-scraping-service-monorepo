@@ -8,6 +8,7 @@ import (
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/service"
 	"business-scraping-service/backend/internal/utils"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -29,7 +30,7 @@ func (h *JobHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 	job, err := h.jobSvc.CreateJob(r.Context(), req)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, err.Error())
+		respondErr(w, r, err, "Failed to create scrape job")
 		return
 	}
 

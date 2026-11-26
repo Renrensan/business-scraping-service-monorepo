@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"business-scraping-service/backend/internal/apperr"
 	"business-scraping-service/backend/internal/engine/gmaps"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
@@ -487,7 +488,7 @@ func (q *JobQueue) onQuotaExhausted() {
 // ---------------------------------------------------------------------------------------------
 // Enqueueing
 
-var ErrKeywordBusy = errors.New("keyword is already queued or being scraped")
+var ErrKeywordBusy = apperr.Conflict("keyword is already queued or being scraped")
 
 // EnqueueManual queues a manual (New Job form) search.
 func (q *JobQueue) EnqueueManual(ctx context.Context, job *model.ScrapeJob) error {

@@ -112,7 +112,7 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.authSvc.ChangePassword(r.Context(), session.AdminID, req.CurrentPassword, req.NewPassword); err != nil {
-		utils.RespondError(w, http.StatusBadRequest, err.Error())
+		respondErr(w, r, err, "Failed to change password")
 		return
 	}
 

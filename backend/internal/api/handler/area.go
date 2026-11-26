@@ -2,13 +2,11 @@ package handler
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
-	"business-scraping-service/backend/internal/repository"
 	"business-scraping-service/backend/internal/service"
 	"business-scraping-service/backend/internal/utils"
 )
@@ -24,7 +22,7 @@ func NewAreaHandler(keywordSvc *service.KeywordService) *AreaHandler {
 func (h *AreaHandler) List(w http.ResponseWriter, r *http.Request) {
 	areas, err := h.keywordSvc.ListAreas(r.Context())
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, "Failed to list areas: "+err.Error())
+		respondErr(w, r, err, "Failed to list areas")
 		return
 	}
 	utils.RespondJSON(w, http.StatusOK, areas)
@@ -38,11 +36,7 @@ func (h *AreaHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 	area, err := h.keywordSvc.AddArea(r.Context(), req)
 	if err != nil {
-		status := http.StatusBadRequest
-		if errors.Is(err, repository.ErrAreaExists) {
-			status = http.StatusConflict
-		}
-		utils.RespondError(w, status, err.Error())
+		respondErr(w, r, err, "Failed to add area")
 		return
 	}
 	utils.RespondSuccess(w, http.StatusCreated, "Area added", area)
@@ -55,11 +49,7 @@ func (h *AreaHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.keywordSvc.DeleteArea(r.Context(), id); err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, repository.ErrAreaInUse) {
-			status = http.StatusConflict
-		}
-		utils.RespondError(w, status, err.Error())
+		respondErr(w, r, err, "Failed to delete area")
 		return
 	}
 	utils.RespondSuccess(w, http.StatusOK, "Area deleted", nil)

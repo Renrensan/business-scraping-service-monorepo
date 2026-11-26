@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"business-scraping-service/backend/internal/apperr"
 	"business-scraping-service/backend/internal/engine"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
@@ -70,7 +71,7 @@ func (s *JobService) CreateJob(ctx context.Context, req model.CreateJobRequest) 
 	} else if req.Query != "" {
 		queries = []string{req.Query}
 	} else {
-		return nil, fmt.Errorf("at least one search query is required")
+		return nil, apperr.Invalid("at least one search query is required")
 	}
 
 	var locations []string

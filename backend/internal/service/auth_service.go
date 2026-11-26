@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"business-scraping-service/backend/internal/apperr"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
 	"business-scraping-service/backend/internal/session"
@@ -74,11 +75,11 @@ func (s *AuthService) Logout(ctx context.Context, token string) error {
 func (s *AuthService) ChangePassword(ctx context.Context, adminID uuid.UUID, currentPassword, newPassword string) error {
 	admin, err := s.adminRepo.GetByID(ctx, adminID)
 	if err != nil || admin == nil {
-		return fmt.Errorf("admin user not found")
+		return apperr.NotFound("admin user not found")
 	}
 
 	if !utils.CheckPasswordHash(currentPassword, admin.PasswordHash) {
-		return fmt.Errorf("current password does not match")
+		return apperr.Invalid("current password does not match")
 	}
 
 	newHash, err := utils.HashPassword(newPassword)

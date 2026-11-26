@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"business-scraping-service/backend/internal/apperr"
 	"business-scraping-service/backend/internal/engine"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
@@ -54,7 +55,7 @@ func (s *ScoringService) Options() ScoringOptions {
 func validateProfile(in *ProfileInput) error {
 	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" {
-		return fmt.Errorf("name is required")
+		return apperr.Invalid("name is required")
 	}
 	c := &in.Config
 	c.Normalize()
@@ -66,17 +67,17 @@ func validateProfile(in *ProfileInput) error {
 			}
 		}
 		if !ok {
-			return fmt.Errorf("unknown channel %q", ch)
+			return apperr.Invalid("unknown channel %q", ch)
 		}
 	}
 	for g := range c.GroupBonuses {
 		if !scoring.ValidGroupType(g) {
-			return fmt.Errorf("unknown group type %q", g)
+			return apperr.Invalid("unknown group type %q", g)
 		}
 	}
 	check := func(where string, co scoring.Cutoff) error {
 		if co.Good > co.Hot {
-			return fmt.Errorf("%s: the GOOD cut-off (%d) must not be above HOT (%d)", where, co.Good, co.Hot)
+			return apperr.Invalid("%s: the GOOD cut-off (%d) must not be above HOT (%d)", where, co.Good, co.Hot)
 		}
 		return nil
 	}
@@ -85,7 +86,7 @@ func validateProfile(in *ProfileInput) error {
 	}
 	for area, co := range c.AreaCutoffs {
 		if strings.TrimSpace(area) == "" {
-			return fmt.Errorf("area cut-off without an area name")
+			return apperr.Invalid("area cut-off without an area name")
 		}
 		if err := check(area, co); err != nil {
 			return err
@@ -171,7 +172,7 @@ func (s *ScoringService) SetLeadGrouping(ctx context.Context, leadID uuid.UUID, 
 	}
 	if err := s.repo.SetLeadGrouping(ctx, leadID, in.GroupType, in.GroupName); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("lead not found")
+			return apperr.NotFound("lead not found")
 		}
 		return err
 	}

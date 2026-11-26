@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"business-scraping-service/backend/internal/apperr"
 	"business-scraping-service/backend/internal/config"
 	"business-scraping-service/backend/internal/engine"
 	"business-scraping-service/backend/internal/model"
@@ -95,7 +96,7 @@ func (s *SystemService) GetSettings() *SystemSettingsResponse {
 func (s *SystemService) UpdateGoogleAPIKey(ctx context.Context, apiKey string) error {
 	apiKey = strings.TrimSpace(apiKey)
 	if apiKey == "" {
-		return fmt.Errorf("api key must not be empty")
+		return apperr.Invalid("api key must not be empty")
 	}
 	if s.settings != nil {
 		if err := s.settings.Set(ctx, GoogleAPIKeySettingKey, apiKey); err != nil {
@@ -210,7 +211,7 @@ func (s *SystemService) placesRequestsToday() int {
 // caused by the old budget.
 func (s *SystemService) SetPlacesBudget(ctx context.Context, n int) error {
 	if n < 0 {
-		return fmt.Errorf("budget cannot be negative")
+		return apperr.Invalid("budget cannot be negative")
 	}
 	if s.settings != nil {
 		if err := s.settings.Set(ctx, PlacesBudgetSettingKey, n); err != nil {

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"business-scraping-service/backend/internal/service"
-	"business-scraping-service/backend/internal/utils"
 )
 
 type ExportHandler struct {
@@ -24,7 +23,7 @@ func (h *ExportHandler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 	csvBytes, _, err := h.exportSvc.ExportCSV(r.Context(), filter)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, "Failed to generate CSV: "+err.Error())
+		respondErr(w, r, err, "Failed to generate CSV")
 		return
 	}
 
@@ -53,7 +52,7 @@ func (h *ExportHandler) ExportWAContacts(w http.ResponseWriter, r *http.Request)
 
 	res, err := h.exportSvc.ExportWAContacts(r.Context(), filter, opts)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, "Failed to generate WhatsApp contacts: "+err.Error())
+		respondErr(w, r, err, "Failed to generate WhatsApp contacts")
 		return
 	}
 

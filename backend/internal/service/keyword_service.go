@@ -7,12 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"business-scraping-service/backend/internal/apperr"
 	"business-scraping-service/backend/internal/engine"
 	"business-scraping-service/backend/internal/engine/gmaps"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 )
 
 type KeywordScrapeResult struct {
@@ -73,13 +75,13 @@ type AreaKeywordsResult struct {
 func (s *KeywordService) CreateAreaKeywords(ctx context.Context, term, includedType string, areaIDs []uuid.UUID) (*AreaKeywordsResult, error) {
 	term = strings.TrimSpace(term)
 	if term == "" {
-		return nil, fmt.Errorf("term is required")
+		return nil, apperr.Invalid("term is required")
 	}
 	if len(areaIDs) == 0 {
-		return nil, fmt.Errorf("pick at least one area")
+		return nil, apperr.Invalid("pick at least one area")
 	}
 	if strings.ContainsAny(includedType, " ,;") {
-		return nil, fmt.Errorf("type must be a single Places type such as lodging")
+		return nil, apperr.Invalid("type must be a single Places type such as lodging")
 	}
 	res := &AreaKeywordsResult{}
 	for _, id := range areaIDs {
@@ -88,7 +90,7 @@ func (s *KeywordService) CreateAreaKeywords(ctx context.Context, term, includedT
 			return nil, err
 		}
 		if area == nil {
-			return nil, fmt.Errorf("area %s not found", id)
+			return nil, apperr.NotFound("area %s not found", id)
 		}
 		kw, created, err := s.keywordRepo.CreateAreaKeyword(ctx, term, strings.TrimSpace(strings.ToLower(includedType)), area)
 		if err != nil {
@@ -126,7 +128,7 @@ type AddAreaRequest struct {
 func (s *KeywordService) AddArea(ctx context.Context, req AddAreaRequest) (*model.Area, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {
-		return nil, fmt.Errorf("area name is required")
+		return nil, apperr.Invalid("area name is required")
 	}
 	if existing, err := s.areaRepo.GetByName(ctx, name); err != nil {
 		return nil, err
@@ -144,11 +146,14 @@ func (s *KeywordService) AddArea(ctx context.Context, req AddAreaRequest) (*mode
 			return nil, engine.ErrNoAPIKey
 		}
 		if until, paused := s.queue.Quota().PausedUntil(time.Now()); paused {
-			return nil, fmt.Errorf("google places api daily quota exceeded; area lookup is paused until %s", until.Format("2006-01-02 15:04 MST"))
+			return nil, apperr.Unavailable("google places api daily quota exceeded; area lookup is paused until %s", until.Format("2006-01-02 15:04 MST"))
 		}
 		rect, _, err := s.wp.PlacesClient(key).LookupArea(ctx, name)
 		if err != nil {
-			return nil, fmt.Errorf("could not find %q on Google Maps: %w", name, err)
+			if gmaps.IsQuotaError(err) {
+				return nil, apperr.Unavailable("google places api daily quota exceeded; try adding the area after the quota resets")
+			}
+			return nil, fmt.Errorf("%w: %v", apperr.Invalid("could not find %q on Google Maps", name), err)
 		}
 		area.LowLat, area.LowLng = rect.Low.Latitude, rect.Low.Longitude
 		area.HighLat, area.HighLng = rect.High.Latitude, rect.High.Longitude
@@ -222,13 +227,16 @@ var ErrKeywordBusy = engine.ErrKeywordBusy
 func (s *KeywordService) TriggerKeywordScrape(ctx context.Context, id uuid.UUID, opts TriggerScrapeOptions) (*KeywordScrapeResult, error) {
 	kw, err := s.keywordRepo.GetByID(ctx, id)
 	if err != nil || kw == nil {
-		return nil, fmt.Errorf("keyword not found: %w", err)
+		if err == nil || errors.Is(err, pgx.ErrNoRows) {
+			return nil, apperr.NotFound("keyword not found")
+		}
+		return nil, fmt.Errorf("loading keyword: %w", err)
 	}
 	if s.runner.APIKey() == "" {
 		return nil, engine.ErrNoAPIKey
 	}
 	if until, paused := s.queue.Quota().PausedUntil(time.Now()); paused {
-		return nil, fmt.Errorf("google places api daily quota exceeded; scraping is paused until %s", until.Format("2006-01-02 15:04 MST"))
+		return nil, apperr.Unavailable("google places api daily quota exceeded; scraping is paused until %s", until.Format("2006-01-02 15:04 MST"))
 	}
 
 	maxPages := opts.MaxPages

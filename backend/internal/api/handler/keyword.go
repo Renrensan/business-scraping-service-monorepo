@@ -2,7 +2,6 @@ package handler
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -42,7 +41,7 @@ func (h *KeywordHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.keywordSvc.List(r.Context(), filter)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, "Failed to list keywords: "+err.Error())
+		respondErr(w, r, err, "Failed to list keywords")
 		return
 	}
 
@@ -59,7 +58,7 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Term) != "" || len(req.AreaIDs) > 0 {
 		res, err := h.keywordSvc.CreateAreaKeywords(r.Context(), req.Term, req.IncludedType, req.AreaIDs)
 		if err != nil {
-			utils.RespondError(w, http.StatusBadRequest, "Failed to create keywords: "+err.Error())
+			respondErr(w, r, err, "Failed to create keywords")
 			return
 		}
 		utils.RespondSuccess(w, http.StatusCreated, "Keywords created", map[string]any{
@@ -73,7 +72,7 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if len(req.Keywords) > 0 {
 		createdCount, err := h.keywordSvc.CreateBulk(r.Context(), req.Keywords)
 		if err != nil {
-			utils.RespondError(w, http.StatusInternalServerError, "Failed to create keywords: "+err.Error())
+			respondErr(w, r, err, "Failed to create keywords")
 			return
 		}
 		utils.RespondSuccess(w, http.StatusCreated, "Keywords created", map[string]any{
@@ -85,7 +84,7 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(req.Keyword) != "" {
 		kw, err := h.keywordSvc.Create(r.Context(), req.Keyword)
 		if err != nil {
-			utils.RespondError(w, http.StatusInternalServerError, "Failed to create keyword: "+err.Error())
+			respondErr(w, r, err, "Failed to create keyword")
 			return
 		}
 		utils.RespondJSON(w, http.StatusCreated, kw)
@@ -116,11 +115,7 @@ func (h *KeywordHandler) Trigger(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.keywordSvc.TriggerKeywordScrape(r.Context(), id, opts)
 	if err != nil {
-		status := http.StatusInternalServerError
-		if errors.Is(err, service.ErrKeywordBusy) {
-			status = http.StatusConflict
-		}
-		utils.RespondError(w, status, "Failed to trigger scrape: "+err.Error())
+		respondErr(w, r, err, "Failed to trigger scrape")
 		return
 	}
 
@@ -136,7 +131,7 @@ func (h *KeywordHandler) Reset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.keywordSvc.ResetCursor(r.Context(), id); err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, "Failed to reset cursor: "+err.Error())
+		respondErr(w, r, err, "Failed to reset cursor")
 		return
 	}
 
@@ -167,7 +162,7 @@ func (h *KeywordHandler) Update(w http.ResponseWriter, r *http.Request) {
 
 	kw, err := h.keywordSvc.Update(r.Context(), id, req.Keyword, isActive)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, "Failed to update keyword: "+err.Error())
+		respondErr(w, r, err, "Failed to update keyword")
 		return
 	}
 
@@ -183,7 +178,7 @@ func (h *KeywordHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.keywordSvc.Delete(r.Context(), id); err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, "Failed to delete keyword: "+err.Error())
+		respondErr(w, r, err, "Failed to delete keyword")
 		return
 	}
 

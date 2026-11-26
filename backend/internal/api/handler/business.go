@@ -8,6 +8,7 @@ import (
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/service"
 	"business-scraping-service/backend/internal/utils"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 )
@@ -25,7 +26,7 @@ func (h *BusinessHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := h.businessSvc.List(r.Context(), filter)
 	if err != nil {
-		utils.RespondError(w, http.StatusInternalServerError, "Failed to query businesses: "+err.Error())
+		respondErr(w, r, err, "Failed to query businesses")
 		return
 	}
 

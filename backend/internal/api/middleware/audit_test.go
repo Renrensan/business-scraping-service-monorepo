@@ -30,7 +30,15 @@ func (m *memAudit) Insert(ctx context.Context, e *model.AuditEntry) error {
 func auditRouter(store *memAudit, admin uuid.UUID) http.Handler {
 	rec := NewRecorder(store)
 	r := chi.NewRouter()
-	r.Route("/api/v1", func(api chi.Router) {
+	// Same mounts as the real router: production traffic arrives as /v1/... (nginx strips /api).
+	for _, prefix := range []string{"/api/v1", "/v1", "/api"} {
+		mountAudited(r, prefix, rec, admin)
+	}
+	return r
+}
+
+func mountAudited(r chi.Router, prefix string, rec *Recorder, admin uuid.UUID) {
+	r.Route(prefix, func(api chi.Router) {
 		api.Group(func(p chi.Router) {
 			p.Use(func(next http.Handler) http.Handler { // stands in for AuthMiddleware
 				return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -55,7 +63,31 @@ func auditRouter(store *memAudit, admin uuid.UUID) http.Handler {
 			})
 		})
 	})
-	return r
+}
+
+// Every mount prefix gives the same readable entry, and exports are audited under each.
+func TestAudit_AllPrefixes(t *testing.T) {
+	for _, prefix := range []string{"/api/v1", "/v1", "/api"} {
+		store := &memAudit{}
+		h := auditRouter(store, uuid.New())
+		lead := uuid.New().String()
+		for _, req := range []*http.Request{
+			httptest.NewRequest("PATCH", prefix+"/businesses/"+lead+"/contacted", strings.NewReader(`{"contacted":true}`)),
+			httptest.NewRequest("GET", prefix+"/export/csv", nil),
+			httptest.NewRequest("GET", prefix+"/businesses", nil),
+		} {
+			h.ServeHTTP(httptest.NewRecorder(), req)
+		}
+		if len(store.entries) != 2 {
+			t.Fatalf("%s: %d entries, want 2", prefix, len(store.entries))
+		}
+		if e := store.entries[0]; e.Action != "lead.contacted" || e.Summary != "Marked lead as contacted" || e.Route != "/businesses/{id}/contacted" || e.EntityID != lead {
+			t.Errorf("%s: %+v", prefix, e)
+		}
+		if e := store.entries[1]; e.Action != "export.csv" {
+			t.Errorf("%s: export not audited: %+v", prefix, e)
+		}
+	}
 }
 
 func TestAudit(t *testing.T) {

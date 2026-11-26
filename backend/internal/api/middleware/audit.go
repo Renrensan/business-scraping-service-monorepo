@@ -54,6 +54,20 @@ func clientIP(r *http.Request) string {
 	return strings.Trim(r.RemoteAddr, "[]")
 }
 
+// apiPrefixes are the prefixes the router mounts the API under (see api.CreateRouter). In
+// production nginx strips "/api", so requests arrive as /v1/...; longest prefix first.
+var apiPrefixes = []string{"/api/v1", "/v1", "/api"}
+
+// stripAPIPrefix turns "/v1/businesses/{id}" (or /api/v1/..., /api/...) into "/businesses/{id}".
+func stripAPIPrefix(p string) string {
+	for _, prefix := range apiPrefixes {
+		if strings.HasPrefix(p, prefix+"/") {
+			return strings.TrimPrefix(p, prefix)
+		}
+	}
+	return p
+}
+
 // auditedGET lists read requests that are still worth auditing: they copy lead data out.
 var auditedGET = map[string]bool{
 	"/export/csv":         true,
@@ -66,7 +80,7 @@ var auditedGET = map[string]bool{
 func (rec *Recorder) Audit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		isRead := r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions
-		if isRead && !auditedGET[strings.TrimPrefix(r.URL.Path, "/api/v1")] {
+		if isRead && !auditedGET[stripAPIPrefix(r.URL.Path)] {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -79,7 +93,7 @@ func (rec *Recorder) Audit(next http.Handler) http.Handler {
 		cw := &captureWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(cw, r)
 
-		route := strings.TrimPrefix(chi.RouteContext(r.Context()).RoutePattern(), "/api/v1")
+		route := stripAPIPrefix(chi.RouteContext(r.Context()).RoutePattern())
 		e := describe(r.Method, route, body, cw.body.Bytes())
 		e.Method, e.Route, e.Status = r.Method, route, cw.status
 		if e.EntityID == "" {

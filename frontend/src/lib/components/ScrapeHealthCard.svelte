@@ -69,7 +69,7 @@
   {:else if health}
     {#if health.issues.length}
       <ul class="space-y-1">
-        {#each health.issues as issue}
+        {#each health.issues as issue (issue)}
           <li class="text-xs text-amber-200 flex gap-1.5"><AlertTriangle class="w-3.5 h-3.5 shrink-0 mt-0.5" />{issue}</li>
         {/each}
       </ul>

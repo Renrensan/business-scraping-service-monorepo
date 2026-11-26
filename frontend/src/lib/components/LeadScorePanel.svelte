@@ -108,7 +108,7 @@
             class="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-2 py-1 text-xs text-zinc-200 cursor-pointer"
           >
             <option value="">Automatic ({s.computed_tier.toUpperCase()})</option>
-            {#each ['hot', 'good', 'low', 'skip'] as t}
+            {#each ['hot', 'good', 'low', 'skip'] as t (t)}
               <option value={t}>{t.toUpperCase()} (by hand)</option>
             {/each}
           </select>

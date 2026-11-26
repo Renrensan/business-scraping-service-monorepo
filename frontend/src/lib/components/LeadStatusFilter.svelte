@@ -26,7 +26,7 @@
   >
     All
   </button>
-  {#each LEAD_STATUSES as opt}
+  {#each LEAD_STATUSES as opt (opt.value)}
     {@const on = selected.includes(opt.value)}
     <button
       type="button"

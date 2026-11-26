@@ -238,12 +238,12 @@
           class="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-zinc-200 text-xs cursor-pointer"
         >
           <option value="">Off (newest first)</option>
-          {#each profiles as p}
+          {#each profiles as p (p.id)}
             <option value={p.id}>{p.name}</option>
           {/each}
         </select>
         {#if rankProfile}
-          {#each TIERS as t}
+          {#each TIERS as t (t)}
             <button
               onclick={() => toggleTier(t)}
               class="rounded-full cursor-pointer transition {selectedTiers.length && !selectedTiers.includes(t) ? 'opacity-40 hover:opacity-80' : ''}"
@@ -259,7 +259,7 @@
             title="Area used for the HOT/GOOD cut-offs"
           >
             <option value="">All areas</option>
-            {#each areaNames as a}
+            {#each areaNames as a (a)}
               <option value={a}>{a}</option>
             {/each}
           </select>
@@ -296,7 +296,7 @@
         class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-zinc-200 focus:outline-hidden focus:border-zinc-500 text-xs cursor-pointer"
       >
         <option value="">All Categories</option>
-        {#each availableCategories as cat}
+        {#each availableCategories as cat (cat)}
           <option value={cat}>{cat}</option>
         {/each}
       </select>
@@ -407,7 +407,7 @@
               </td>
             </tr>
           {:else}
-            {#each leads as lead}
+            {#each leads as lead (lead.id)}
               <tr class="hover:bg-zinc-900/40 transition {lead.contacted ? 'bg-emerald-950/10 text-zinc-400' : ''}">
                 <!-- Contacted Checkbox Column -->
                 <td class="px-4 py-3.5 text-center">

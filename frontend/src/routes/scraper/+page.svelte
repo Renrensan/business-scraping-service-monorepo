@@ -577,7 +577,7 @@
                 </td>
               </tr>
             {:else}
-              {#each recentJobs as job}
+              {#each recentJobs as job (job.id)}
                 <tr class="hover:bg-zinc-900/40 transition">
                   <td class="px-5 py-3.5">
                     <div class="font-medium text-white flex items-center gap-1.5">

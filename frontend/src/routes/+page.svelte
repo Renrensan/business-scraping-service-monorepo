@@ -145,7 +145,7 @@
             No business listings scraped yet. Start a scrape from the Scrape Now page to populate leads.
           </div>
         {:else}
-          {#each recentLeads as lead}
+          {#each recentLeads as lead (lead.id)}
             <div class="py-3 flex items-center justify-between gap-3 hover:bg-zinc-900/40 px-2.5 rounded-xl transition">
               <div class="min-w-0">
                 <div class="flex items-center gap-2">
@@ -181,7 +181,7 @@
           {#if categoryStats.length === 0}
             <div class="py-6 text-center text-zinc-500">No categories found yet</div>
           {:else}
-            {#each categoryStats as cat}
+            {#each categoryStats as cat (cat.category)}
               <div class="flex items-center justify-between p-2.5 rounded-xl bg-black border border-zinc-800">
                 <span class="text-zinc-300 font-medium truncate">{cat.category}</span>
                 <span class="text-white font-mono font-bold bg-zinc-900 px-2 py-0.5 rounded text-xs border border-zinc-700">{cat.count}</span>
@@ -204,7 +204,7 @@
           {#if recentJobs.length === 0}
             <div class="py-6 text-center text-zinc-500">No scrape jobs executed yet</div>
           {:else}
-            {#each recentJobs as job}
+            {#each recentJobs as job (job.id)}
               <div class="p-2.5 rounded-xl bg-black border border-zinc-800 flex items-center justify-between">
                 <div class="min-w-0">
                   <div class="font-medium text-white truncate">{job.query}</div>

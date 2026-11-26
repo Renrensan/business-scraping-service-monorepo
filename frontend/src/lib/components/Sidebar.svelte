@@ -79,7 +79,7 @@
 
     <!-- Navigation -->
     <nav class="p-2.5 space-y-1">
-      {#each navItems as item}
+      {#each navItems as item (item.href)}
         {@const isActive = page.url.pathname === item.href || (item.href !== '/' && page.url.pathname.startsWith(item.href))}
         <a
           href={item.href}

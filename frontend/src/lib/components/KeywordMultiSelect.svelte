@@ -74,7 +74,7 @@
       </div>
 
       <ul class="max-h-64 overflow-y-auto py-1" role="listbox" aria-multiselectable="true">
-        {#each filtered as kw}
+        {#each filtered as kw (kw)}
           {@const on = selected.includes(kw)}
           <li>
             <button
@@ -106,7 +106,7 @@
 
   {#if selected.length > 1}
     <div class="flex flex-wrap gap-1 mt-1.5">
-      {#each selected as kw}
+      {#each selected as kw (kw)}
         <span class="inline-flex items-center gap-1 pl-2 pr-1 py-0.5 rounded-md bg-zinc-900 border border-zinc-800 text-[10px] text-zinc-300 max-w-full">
           <span class="truncate">{kw}</span>
           <button type="button" onclick={() => toggle(kw)} class="text-zinc-500 hover:text-white cursor-pointer" aria-label="Remove {kw}">

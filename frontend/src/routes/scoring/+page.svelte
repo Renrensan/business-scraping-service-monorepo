@@ -188,7 +188,7 @@
         </div>
         <div class="flex flex-wrap gap-2 pt-1">
           <span class="text-zinc-400 mr-1">Channels that count:</span>
-          {#each options?.channels || [] as ch}
+          {#each options?.channels || [] as ch (ch)}
             <label class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border cursor-pointer {draft.config.channels.includes(ch) ? 'bg-white/10 border-white/30 text-white' : 'border-zinc-800 text-zinc-500'}">
               <input type="checkbox" checked={draft.config.channels.includes(ch)} onchange={() => toggleChannel(ch)} class="accent-white" />
               {CHANNEL_LABELS[ch] || ch}
@@ -204,7 +204,7 @@
       <section class="space-y-2">
         <h3 class="text-sm text-white font-medium">Group bonus</h3>
         <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
-          {#each options?.group_types || [] as g}
+          {#each options?.group_types || [] as g (g)}
             <label class="space-y-1 block"><span class="text-zinc-400">{GROUP_TYPE_LABELS[g as keyof typeof GROUP_TYPE_LABELS] || g}</span>
               <input type="number" step="any" bind:value={draft.config.group_bonuses[g]} class="w-full px-3 py-2 bg-black border border-zinc-800 rounded-xl text-white" /></label>
           {/each}

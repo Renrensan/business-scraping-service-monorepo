@@ -133,7 +133,7 @@
                 <span>Quick pick from target keywords:</span>
               </span>
               <div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                {#each availableKeywords as kw}
+                {#each availableKeywords as kw (kw.id)}
                   <button
                     type="button"
                     onclick={() => appendKeyword(kw.keyword)}

@@ -18,7 +18,7 @@
 </script>
 
 <div class="inline-flex rounded-lg border border-zinc-800 bg-zinc-900/60 p-0.5 gap-0.5" role="radiogroup" aria-label="Lead status">
-  {#each LEAD_STATUSES as opt}
+  {#each LEAD_STATUSES as opt (opt.value)}
     {@const selected = value === opt.value}
     <button
       type="button"

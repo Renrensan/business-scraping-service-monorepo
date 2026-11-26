@@ -208,7 +208,7 @@
         class="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-zinc-200 focus:outline-hidden focus:border-zinc-500 text-xs cursor-pointer"
       >
         <option value="">All Categories</option>
-        {#each availableCategories as cat}
+        {#each availableCategories as cat (cat)}
           <option value={cat}>{cat}</option>
         {/each}
       </select>
@@ -328,7 +328,7 @@
               </td>
             </tr>
           {:else}
-            {#each leads as lead}
+            {#each leads as lead (lead.id)}
               <tr class="hover:bg-zinc-900/40 transition bg-emerald-950/5">
                 <!-- Lead status: Cold / Warm / Hot, plus remove from pipeline -->
                 <td class="px-4 py-3.5">

@@ -10,10 +10,11 @@ import (
 	"business-scraping-service/backend/internal/utils"
 )
 
-const (
-	SessionContextKey contextKey = "session_data"
-	SessionCookieName            = "bizscrape_session"
-)
+// SessionContextKey holds the request's session in its context.
+const SessionContextKey contextKey = "session_data"
+
+// SessionCookieName is the cookie that carries the session token.
+const SessionCookieName = "bizscrape_session"
 
 func AuthMiddleware(authSvc *service.AuthService) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {

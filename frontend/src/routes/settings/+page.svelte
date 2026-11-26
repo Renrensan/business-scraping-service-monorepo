@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AdminsCard from '$lib/components/AdminsCard.svelte';
   import { errorMessage } from '$lib/utils/errors';
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
@@ -92,8 +93,8 @@
   }
 
   async function handlePasswordChange() {
-    if (!newPassword || newPassword.length < 6) {
-      toast.error('New password must be at least 6 characters');
+    if (!newPassword || newPassword.length < 8) {
+      toast.error('New password must be at least 8 characters');
       return;
     }
     try {
@@ -301,6 +302,8 @@
       </div>
     </div>
   </div>
+
+  <AdminsCard />
 
   <!-- Account Security Card -->
   <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-sm space-y-4">

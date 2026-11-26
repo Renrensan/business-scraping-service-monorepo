@@ -52,6 +52,9 @@ func (s *AuthService) Login(ctx context.Context, usernameOrEmail, password strin
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to create session: %w", err)
 	}
+	if err := s.adminRepo.TouchLastLogin(ctx, admin.ID); err != nil {
+		slog.Warn("failed to record last login", "admin", admin.Username, "error", err)
+	}
 
 	return admin, token, nil
 }
@@ -60,6 +63,14 @@ func (s *AuthService) ValidateSession(ctx context.Context, token string) (*model
 	data, err := s.sessionStore.GetSession(ctx, token)
 	if err != nil || data == nil {
 		return nil, err
+	}
+	// A deactivated (or deleted) admin's sessions stop working immediately.
+	admin, err := s.adminRepo.GetByID(ctx, data.AdminID)
+	if err != nil {
+		return nil, err
+	}
+	if admin == nil || !admin.IsActive {
+		return nil, nil
 	}
 	if err := s.sessionStore.TouchSession(ctx, token); err != nil {
 		// The session is valid; failing to extend it only shortens its life.

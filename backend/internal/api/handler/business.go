@@ -82,7 +82,7 @@ func (h *BusinessHandler) PatchContacted(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if err := h.businessSvc.SetContacted(r.Context(), id, body.Contacted); err != nil {
+	if err := h.businessSvc.SetContacted(r.Context(), id, body.Contacted, actingAdmin(r)); err != nil {
 		utils.RespondError(w, http.StatusInternalServerError, "Failed to update contacted status")
 		return
 	}
@@ -112,7 +112,7 @@ func (h *BusinessHandler) PatchStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	found, err := h.businessSvc.SetLeadStatus(r.Context(), id, status)
+	found, err := h.businessSvc.SetLeadStatus(r.Context(), id, status, actingAdmin(r))
 	if err != nil {
 		utils.RespondError(w, http.StatusInternalServerError, "Failed to update lead status")
 		return

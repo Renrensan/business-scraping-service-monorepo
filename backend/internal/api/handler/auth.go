@@ -2,8 +2,10 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"business-scraping-service/backend/internal/api/middleware"
@@ -14,10 +16,11 @@ import (
 
 type AuthHandler struct {
 	authSvc *service.AuthService
+	audit   *middleware.Recorder
 }
 
-func NewAuthHandler(authSvc *service.AuthService) *AuthHandler {
-	return &AuthHandler{authSvc: authSvc}
+func NewAuthHandler(authSvc *service.AuthService, audit *middleware.Recorder) *AuthHandler {
+	return &AuthHandler{authSvc: authSvc, audit: audit}
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -29,9 +32,23 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	admin, token, err := h.authSvc.Login(r.Context(), req.UsernameOrEmail, req.Password)
 	if err != nil {
+		// Logins happen before there is a session, so they are audited here, not by the middleware.
+		attempted := strings.TrimSpace(req.UsernameOrEmail)
+		if len(attempted) > 100 {
+			attempted = attempted[:100]
+		}
+		h.audit.Record(r, &model.AuditEntry{
+			AdminName: attempted, Action: "auth.login_failed", Summary: "Failed login",
+			Method: r.Method, Route: "/auth/login", Status: http.StatusUnauthorized,
+		})
 		utils.RespondError(w, http.StatusUnauthorized, "Invalid username/email or password")
 		return
 	}
+	id := admin.ID
+	h.audit.Record(r, &model.AuditEntry{
+		AdminID: &id, AdminName: admin.Username, Action: "auth.login", Summary: "Logged in",
+		EntityType: "admin", EntityID: admin.ID.String(), Method: r.Method, Route: "/auth/login", Status: http.StatusOK,
+	})
 
 	// Set HttpOnly session cookie
 	http.SetCookie(w, &http.Cookie{
@@ -106,8 +123,8 @@ func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.NewPassword == "" || len(req.NewPassword) < 6 {
-		utils.RespondError(w, http.StatusBadRequest, "New password must be at least 6 characters")
+	if len(req.NewPassword) < service.MinPasswordLength {
+		utils.RespondError(w, http.StatusBadRequest, fmt.Sprintf("New password must be at least %d characters", service.MinPasswordLength))
 		return
 	}
 

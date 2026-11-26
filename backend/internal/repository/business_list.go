@@ -279,7 +279,8 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 		       group_type, group_name, suggested_group_type, suggested_group_name,
 		       (SELECT COUNT(*) FROM lead_contacts c WHERE c.lead_id = business_leads.id),
 		       COALESCE((SELECT c.name FROM lead_contacts c WHERE c.lead_id = business_leads.id ORDER BY c.created_at, c.id LIMIT 1), ''),
-		       COALESCE((SELECT c.role FROM lead_contacts c WHERE c.lead_id = business_leads.id ORDER BY c.created_at, c.id LIMIT 1), '')%s
+		       COALESCE((SELECT c.role FROM lead_contacts c WHERE c.lead_id = business_leads.id ORDER BY c.created_at, c.id LIMIT 1), ''),
+		       contacted_by, COALESCE((SELECT username FROM admin_users WHERE id = business_leads.contacted_by), '')%s
 		FROM %s
 		WHERE %s
 		%s
@@ -308,6 +309,7 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 			&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.LeadStatus, &lead.CreatedAt, &lead.UpdatedAt, &scrapeKwBytes,
 			&lead.GroupType, &lead.GroupName, &lead.SuggestedGroupType, &lead.SuggestedGroupName,
 			&lead.ContactCount, &lead.MainContactName, &lead.MainContactRole,
+			&lead.ContactedBy, &lead.ContactedByName,
 		}
 		var sc scoreScan
 		if scored {

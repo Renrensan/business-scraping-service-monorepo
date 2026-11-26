@@ -2,16 +2,20 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"business-scraping-service/backend/internal/api"
 	"business-scraping-service/backend/internal/api/handler"
+	"business-scraping-service/backend/internal/api/middleware"
 	"business-scraping-service/backend/internal/config"
 	"business-scraping-service/backend/internal/engine"
 	"business-scraping-service/backend/internal/engine/gmaps"
@@ -75,6 +79,16 @@ func main() {
 
 	// 6. Initialize Redis Session Store
 	sessionStore := session.NewRedisStore(redisCli, session.DefaultSessionTTL)
+
+	adminSvc := service.NewAdminService(adminRepo, sessionStore)
+	auditRepo := repository.NewAuditRepository(dbPool)
+	auditRecorder := middleware.NewRecorder(auditRepo)
+
+	// One-off command: create or reset an admin, then exit (no workers are started).
+	//   echo -n 'password' | /app/server admin-upsert --email someone@example.com [--username name]
+	if len(os.Args) > 1 && os.Args[1] == "admin-upsert" {
+		os.Exit(runAdminUpsert(ctx, adminSvc, os.Args[2:]))
+	}
 
 	// 7. Auto-bootstrap Super Admin if no admin exists
 	bootstrapSuperAdmin(ctx, adminRepo, cfg)
@@ -141,7 +155,7 @@ func main() {
 
 	// 10. Initialize Handlers
 	handlers := &api.Handlers{
-		Auth:     handler.NewAuthHandler(authSvc),
+		Auth:     handler.NewAuthHandler(authSvc, auditRecorder),
 		Job:      handler.NewJobHandler(jobSvc),
 		Business: handler.NewBusinessHandler(businessSvc),
 		Export:   handler.NewExportHandler(exportSvc),
@@ -151,10 +165,12 @@ func main() {
 		Area:     handler.NewAreaHandler(keywordSvc),
 		Scoring:  handler.NewScoringHandler(service.NewScoringService(scoringRepo, scorer)),
 		Contact:  handler.NewContactHandler(service.NewContactService(contactRepo)),
+		Admin:    handler.NewAdminHandler(adminSvc, auditRepo),
 	}
 
 	services := &api.Services{
-		Auth: authSvc,
+		Auth:  authSvc,
+		Audit: auditRecorder,
 	}
 
 	// 11. Build HTTP Router & Server
@@ -234,4 +250,32 @@ func bootstrapSuperAdmin(ctx context.Context, repo *repository.AdminRepository, 
 			"email", cfg.SuperAdminEmail,
 		)
 	}
+}
+
+// runAdminUpsert creates an admin or resets an existing one's password (and reactivates it).
+// The password is read from stdin so it doesn't appear in the process list or shell history.
+func runAdminUpsert(ctx context.Context, admins *service.AdminService, args []string) int {
+	fs := flag.NewFlagSet("admin-upsert", flag.ContinueOnError)
+	email := fs.String("email", "", "admin email (required)")
+	username := fs.String("username", "", "username (default: part of the email before @)")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	pw, err := io.ReadAll(io.LimitReader(os.Stdin, 1024))
+	if err != nil {
+		slog.Error("reading password from stdin", "error", err)
+		return 1
+	}
+	password := strings.TrimRight(string(pw), "\r\n")
+	a, created, err := admins.Upsert(ctx, service.CreateAdminInput{Email: *email, Username: *username, Password: password})
+	if err != nil {
+		slog.Error("admin-upsert failed", "email", *email, "error", err)
+		return 1
+	}
+	action := "updated (password reset, active)"
+	if created {
+		action = "created"
+	}
+	slog.Info("admin "+action, "username", a.Username, "email", a.Email, "id", a.ID)
+	return 0
 }

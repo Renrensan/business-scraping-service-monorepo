@@ -10,7 +10,7 @@
     Settings, 
     X,
     PanelLeftClose,
-    PanelLeftOpen, Trophy
+    PanelLeftOpen, Trophy, History
   } from 'lucide-svelte';
 
   const navItems = [
@@ -19,6 +19,7 @@
     { label: 'Raw Data', href: '/businesses', icon: Database },
     { label: 'Leads', href: '/leads', icon: UserCheck },
     { label: 'Scoring', href: '/scoring', icon: Trophy },
+    { label: 'Audit log', href: '/audit', icon: History },
     { label: 'Export', href: '/export', icon: Download },
     { label: 'Settings', href: '/settings', icon: Settings },
   ];

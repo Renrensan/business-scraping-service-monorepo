@@ -4,6 +4,7 @@
   import LeadStatusSelect from '$lib/components/LeadStatusSelect.svelte';
   import LeadScorePanel from '$lib/components/LeadScorePanel.svelte';
   import LeadContactsPanel from '$lib/components/LeadContactsPanel.svelte';
+  import LeadHistoryPanel from '$lib/components/LeadHistoryPanel.svelte';
   import { getLeadStatus } from '$lib/utils/leadStatus';
   import { getWhatsAppUrl } from '$lib/utils/format';
   import { api } from '$lib/api/client';
@@ -33,6 +34,7 @@
 
   async function handleStatusChange(status: LeadStatus) {
     if (!lead) return;
+    bumpHistory();
     if (onStatusChange) {
       onStatusChange(lead, status);
       return;
@@ -49,11 +51,15 @@
   }
 
   let isUpdatingContacted = $state(false);
+  // Bumped after changes made here so the History list reloads.
+  let historyKey = $state(0);
+  const bumpHistory = () => setTimeout(() => (historyKey += 1), 400);
 
   async function handleToggleContacted() {
     if (!lead || isUpdatingContacted) return;
     const targetStatus = !lead.contacted;
     isUpdatingContacted = true;
+    bumpHistory();
     try {
       if (onToggleContacted) {
         onToggleContacted(lead, targetStatus);
@@ -114,6 +120,11 @@
             <CheckCircle2 class="w-4 h-4 text-emerald-400 shrink-0" />
             <div>
               <span class="text-xs font-medium text-emerald-400">Contacted</span>
+              {#if lead.contacted_by_name || lead.contacted_at}
+                <span class="text-[10px] text-zinc-400">
+                  {lead.contacted_by_name ? `by ${lead.contacted_by_name}` : ''}{lead.contacted_at ? ` · ${new Date(lead.contacted_at).toLocaleDateString()}` : ''}
+                </span>
+              {/if}
               <p class="text-[10px] text-zinc-500">{getLeadStatus(lead.lead_status ?? 'cold')?.hint}</p>
             </div>
           {:else}
@@ -146,10 +157,13 @@
       {/if}
 
       <!-- People at the business, recorded by admins -->
-      <LeadContactsPanel leadId={lead.id} onChanged={onContactsChanged} />
+      <LeadContactsPanel leadId={lead.id} onChanged={() => { onContactsChanged?.(); bumpHistory(); }} />
 
       <!-- Ranking (scoring profiles that apply to this lead) -->
-      <LeadScorePanel leadId={lead.id} onChanged={onScoreChanged} />
+      <LeadScorePanel leadId={lead.id} onChanged={() => { onScoreChanged?.(); bumpHistory(); }} />
+
+      <!-- Everything admins did to this lead -->
+      <LeadHistoryPanel leadId={lead.id} refreshKey={historyKey} />
 
       <!-- Details Info -->
       <div class="mt-4 space-y-3.5 text-xs">

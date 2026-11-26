@@ -403,7 +403,8 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 		       facebook_url, instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url,
 		       google_maps_url, opening_hours, photos, enrichment_status, last_scraped_at,
 		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at, scrape_keywords,
-		       group_type, group_name, suggested_group_type, suggested_group_name
+		       group_type, group_name, suggested_group_type, suggested_group_name,
+		       contacted_by, COALESCE((SELECT username FROM admin_users WHERE id = business_leads.contacted_by), '')
 		FROM business_leads
 		WHERE id = $1
 	`
@@ -418,6 +419,7 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 		&lead.GoogleMapsURL, &hoursBytes, &photosBytes, &lead.EnrichmentStatus, &lead.LastScrapedAt,
 		&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.LeadStatus, &lead.CreatedAt, &lead.UpdatedAt, &scrapeKwBytes,
 		&lead.GroupType, &lead.GroupName, &lead.SuggestedGroupType, &lead.SuggestedGroupName,
+		&lead.ContactedBy, &lead.ContactedByName,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -443,20 +445,23 @@ func (r *BusinessRepository) Delete(ctx context.Context, id uuid.UUID) error {
 
 // SetContacted ticks or unticks a lead. Ticking starts it as cold (keeping any status it
 // already has); unticking clears the status so it leaves the Leads pipeline.
-func (r *BusinessRepository) SetContacted(ctx context.Context, id uuid.UUID, contacted bool) error {
+// SetContacted ticks or unticks a lead. by is the admin doing it: the first admin to mark a
+// lead contacted is kept as contacted_by, like contacted_at; unticking clears both.
+func (r *BusinessRepository) SetContacted(ctx context.Context, id uuid.UUID, contacted bool, by *uuid.UUID) error {
 	var err error
 	if contacted {
 		_, err = r.db.Exec(ctx, `
 			UPDATE business_leads
 			SET contacted = true,
 			    contacted_at = COALESCE(contacted_at, NOW()),
+			    contacted_by = CASE WHEN contacted THEN contacted_by ELSE $2 END,
 			    lead_status = COALESCE(lead_status, 'cold'),
 			    updated_at = NOW()
-			WHERE id = $1`, id)
+			WHERE id = $1`, id, by)
 	} else {
 		_, err = r.db.Exec(ctx, `
 			UPDATE business_leads
-			SET contacted = false, contacted_at = NULL, lead_status = NULL, updated_at = NOW()
+			SET contacted = false, contacted_at = NULL, contacted_by = NULL, lead_status = NULL, updated_at = NOW()
 			WHERE id = $1`, id)
 	}
 	return err
@@ -464,14 +469,15 @@ func (r *BusinessRepository) SetContacted(ctx context.Context, id uuid.UUID, con
 
 // SetLeadStatus sets cold/warm/hot. A lead with a status is always contacted.
 // Returns false when no lead has that id.
-func (r *BusinessRepository) SetLeadStatus(ctx context.Context, id uuid.UUID, status model.LeadStatus) (bool, error) {
+func (r *BusinessRepository) SetLeadStatus(ctx context.Context, id uuid.UUID, status model.LeadStatus, by *uuid.UUID) (bool, error) {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE business_leads
 		SET lead_status = $1,
+		    contacted_by = CASE WHEN contacted THEN contacted_by ELSE $3 END,
 		    contacted = true,
 		    contacted_at = COALESCE(contacted_at, NOW()),
 		    updated_at = NOW()
-		WHERE id = $2`, string(status), id)
+		WHERE id = $2`, string(status), id, by)
 	if err != nil {
 		return false, err
 	}

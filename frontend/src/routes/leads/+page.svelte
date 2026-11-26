@@ -343,6 +343,9 @@
                       <UserMinus class="w-3.5 h-3.5" />
                     </button>
                   </div>
+                  {#if lead.contacted_by_name}
+                    <div class="text-[10px] text-zinc-500 mt-1" title="Marked contacted by">by {lead.contacted_by_name}</div>
+                  {/if}
                 </td>
 
                 <td class="px-4 py-3.5 font-medium max-w-xs truncate text-white">

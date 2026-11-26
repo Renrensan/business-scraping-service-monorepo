@@ -7,6 +7,7 @@ import (
 	"business-scraping-service/backend/internal/api/middleware"
 	"business-scraping-service/backend/internal/config"
 	"business-scraping-service/backend/internal/service"
+
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 )
@@ -22,10 +23,12 @@ type Handlers struct {
 	Area     *handler.AreaHandler
 	Scoring  *handler.ScoringHandler
 	Contact  *handler.ContactHandler
+	Admin    *handler.AdminHandler
 }
 
 type Services struct {
-	Auth *service.AuthService
+	Auth  *service.AuthService
+	Audit *middleware.Recorder
 }
 
 func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
@@ -60,6 +63,13 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 		// Protected Routes (Session Required)
 		api.Group(func(protected chi.Router) {
 			protected.Use(middleware.AuthMiddleware(s.Auth))
+			protected.Use(s.Audit.Audit) // records every change (and export) with the admin who made it
+
+			// Admins and audit log
+			protected.Get("/admins", h.Admin.List)
+			protected.Post("/admins", h.Admin.Create)
+			protected.Patch("/admins/{id}", h.Admin.Update)
+			protected.Get("/audit", h.Admin.Audit)
 
 			// Auth Me & Logout
 			protected.Get("/auth/me", h.Auth.GetMe)

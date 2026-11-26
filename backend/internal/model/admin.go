@@ -12,8 +12,9 @@ type AdminUser struct {
 	Email        string    `json:"email"`
 	PasswordHash string    `json:"-"`
 	IsActive     bool      `json:"is_active"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	LastLoginAt  *time.Time `json:"last_login_at,omitempty"`
 }
 
 type LoginRequest struct {

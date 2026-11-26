@@ -47,12 +47,12 @@ func (s *BusinessService) Delete(ctx context.Context, id uuid.UUID) error {
 	return s.businessRepo.Delete(ctx, id)
 }
 
-func (s *BusinessService) SetContacted(ctx context.Context, id uuid.UUID, contacted bool) error {
-	return s.businessRepo.SetContacted(ctx, id, contacted)
+func (s *BusinessService) SetContacted(ctx context.Context, id uuid.UUID, contacted bool, by *uuid.UUID) error {
+	return s.businessRepo.SetContacted(ctx, id, contacted, by)
 }
 
-func (s *BusinessService) SetLeadStatus(ctx context.Context, id uuid.UUID, status model.LeadStatus) (bool, error) {
-	return s.businessRepo.SetLeadStatus(ctx, id, status)
+func (s *BusinessService) SetLeadStatus(ctx context.Context, id uuid.UUID, status model.LeadStatus, by *uuid.UUID) (bool, error) {
+	return s.businessRepo.SetLeadStatus(ctx, id, status, by)
 }
 
 func (s *BusinessService) GetScrapeKeywords(ctx context.Context) ([]string, error) {

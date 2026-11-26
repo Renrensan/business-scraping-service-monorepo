@@ -73,6 +73,8 @@ type BusinessLead struct {
 	LastEnrichedAt   *time.Time       `json:"last_enriched_at,omitempty"`
 	Contacted        bool             `json:"contacted"`
 	ContactedAt      *time.Time       `json:"contacted_at,omitempty"`
+	ContactedBy      *uuid.UUID       `json:"contacted_by,omitempty"`
+	ContactedByName  string           `json:"contacted_by_name,omitempty"` // username of the admin who marked it contacted
 	LeadStatus       *LeadStatus      `json:"lead_status"`
 	CreatedAt        time.Time        `json:"created_at"`
 	UpdatedAt        time.Time        `json:"updated_at"`

@@ -9,6 +9,8 @@ import (
 	"business-scraping-service/backend/internal/api/middleware"
 	"business-scraping-service/backend/internal/apperr"
 	"business-scraping-service/backend/internal/utils"
+
+	"github.com/google/uuid"
 )
 
 // respondErr sends an error to the client. Errors the user can act on (see package apperr) are
@@ -38,4 +40,13 @@ func serverError(w http.ResponseWriter, r *http.Request, msg string, err error) 
 		msg = fmt.Sprintf("%s (reference %s)", msg, reqID)
 	}
 	utils.RespondError(w, http.StatusInternalServerError, msg)
+}
+
+// actingAdmin is the id of the admin making the request, or nil without a session.
+func actingAdmin(r *http.Request) *uuid.UUID {
+	if s := middleware.GetSessionFromContext(r.Context()); s != nil {
+		id := s.AdminID
+		return &id
+	}
+	return nil
 }

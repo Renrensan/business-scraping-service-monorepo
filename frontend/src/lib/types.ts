@@ -45,6 +45,8 @@ export interface BusinessLead {
   enrichment_status: "NONE" | "PENDING" | "SUCCESS" | "FAILED";
   contacted?: boolean;
   contacted_at?: string;
+  contacted_by?: string | null;
+  contacted_by_name?: string;
   lead_status?: LeadStatus | null;
   group_type?: GroupType | null;
   group_name?: string | null;
@@ -260,3 +262,40 @@ export interface LeadContact {
 }
 
 export type LeadContactInput = Pick<LeadContact, 'name' | 'role' | 'phone' | 'email' | 'note'>;
+
+// ---- Admins and audit log ----
+export interface AdminUser {
+  id: string;
+  username: string;
+  email: string;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  last_login_at?: string;
+}
+
+export interface AuditEntry {
+  id: number;
+  created_at: string;
+  admin_id?: string;
+  admin_name: string;
+  action: string;
+  summary: string;
+  entity_type?: string;
+  entity_id?: string;
+  entity_name?: string;
+  method?: string;
+  route?: string;
+  status: number;
+  details?: { request?: unknown; query?: string; error?: string };
+  ip?: string;
+  request_id?: string;
+}
+
+export interface AuditListResponse {
+  items: AuditEntry[];
+  total_count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}

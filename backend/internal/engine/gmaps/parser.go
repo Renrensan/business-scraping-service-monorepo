@@ -217,9 +217,15 @@ func parseAddressParts(lead *model.BusinessLead, address string) {
 	}
 }
 
+// formatCategory turns a Places type ("resort_hotel") into a label ("Resort Hotel").
+// Places types are ASCII snake_case, so a simple per-word capitalisation is enough
+// (strings.Title is deprecated).
 func formatCategory(raw string) string {
-	raw = strings.ReplaceAll(raw, "_", " ")
-	return strings.Title(raw)
+	words := strings.Fields(strings.ReplaceAll(raw, "_", " "))
+	for i, w := range words {
+		words[i] = strings.ToUpper(w[:1]) + w[1:]
+	}
+	return strings.Join(words, " ")
 }
 
 func formatPriceLevel(p string) string {

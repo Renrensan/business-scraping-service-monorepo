@@ -299,3 +299,10 @@ export interface AuditListResponse {
   page_size: number;
   total_pages: number;
 }
+
+export interface ProfileSummary {
+  profile_id: string;
+  total: number;
+  tiers: Partial<Record<Tier, number>>;
+  areas: { name: string; total: number; tiers: Partial<Record<Tier, number>> }[];
+}

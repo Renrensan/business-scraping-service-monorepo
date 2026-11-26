@@ -215,7 +215,12 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 			args = append(args, tiers)
 			argIdx++
 		}
-		if area := strings.TrimSpace(filter.ScoreArea); area != "" {
+		if filter.ScoredOnly {
+			whereSQL += " AND ls.lead_id IS NOT NULL"
+		}
+		if strings.TrimSpace(filter.ScoreArea) == "-" { // leads outside every named area
+			whereSQL += " AND ls.area_name = ''"
+		} else if area := strings.TrimSpace(filter.ScoreArea); area != "" {
 			whereSQL += fmt.Sprintf(" AND LOWER(ls.area_name) = LOWER($%d)", argIdx)
 			args = append(args, area)
 			argIdx++

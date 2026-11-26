@@ -137,3 +137,31 @@ func (h *ScoringHandler) SetScoreOverride(w http.ResponseWriter, r *http.Request
 	}
 	utils.RespondSuccess(w, http.StatusOK, "Tier updated", scores)
 }
+
+func (h *ScoringHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid profile ID")
+		return
+	}
+	p, err := h.svc.Profile(r.Context(), id)
+	if err != nil {
+		respondErr(w, r, err, "Failed to load scoring profile")
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, p)
+}
+
+func (h *ScoringHandler) Summary(w http.ResponseWriter, r *http.Request) {
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid profile ID")
+		return
+	}
+	sum, err := h.svc.Summary(r.Context(), id)
+	if err != nil {
+		respondErr(w, r, err, "Failed to load the profile summary")
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, sum)
+}

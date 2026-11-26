@@ -143,7 +143,7 @@
             </p>
           </div>
           <div class="flex gap-2 shrink-0">
-            <a href="/businesses" onclick={() => localStorage.setItem('rank_profile', p.id)} class="px-3 py-1.5 rounded-lg border border-zinc-800 text-xs text-zinc-300 hover:text-white">View ranking</a>
+            <a href="/prospects/{p.id}" class="px-3 py-1.5 rounded-lg border border-zinc-800 text-xs text-zinc-300 hover:text-white">View prospects</a>
             <button onclick={() => (draft = toDraft(p))} class="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800 text-xs text-white cursor-pointer">Edit</button>
             <button onclick={() => remove(p)} class="p-1.5 rounded-lg border border-zinc-800 text-zinc-500 hover:text-red-300 cursor-pointer" aria-label="Delete profile"><Trash2 class="w-3.5 h-3.5" /></button>
           </div>

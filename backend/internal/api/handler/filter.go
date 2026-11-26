@@ -77,6 +77,7 @@ func parseBusinessFilter(q url.Values) model.BusinessFilter {
 		}
 	}
 	filter.ScoreArea = q.Get("score_area")
+	filter.ScoredOnly = q.Get("scored_only") == "true"
 
 	if v := q.Get("job_id"); v != "" {
 		if id, err := uuid.Parse(v); err == nil {

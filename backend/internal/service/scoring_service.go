@@ -196,3 +196,16 @@ func (s *ScoringService) SetScoreOverride(ctx context.Context, leadID, profileID
 func (s *ScoringService) ScoresForLead(ctx context.Context, leadID uuid.UUID) ([]model.LeadScore, error) {
 	return s.repo.ScoresForLead(ctx, leadID)
 }
+
+// Summary is the tier breakdown for a profile's prospects page.
+func (s *ScoringService) Summary(ctx context.Context, id uuid.UUID) (*model.ProfileSummary, error) {
+	if _, err := s.repo.GetProfile(ctx, id); err != nil {
+		return nil, err
+	}
+	return s.repo.Summary(ctx, id)
+}
+
+// Profile returns one profile.
+func (s *ScoringService) Profile(ctx context.Context, id uuid.UUID) (*model.ScoringProfile, error) {
+	return s.repo.GetProfile(ctx, id)
+}

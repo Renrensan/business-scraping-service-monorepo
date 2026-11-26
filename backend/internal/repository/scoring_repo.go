@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -347,4 +348,48 @@ func (r *ScoringRepository) ScoresForLead(ctx context.Context, leadID uuid.UUID)
 		out = append(out, s)
 	}
 	return out, rows.Err()
+}
+
+// Summary counts a profile's scored leads by tier, overall and per area (most leads first).
+func (r *ScoringRepository) Summary(ctx context.Context, profileID uuid.UUID) (*model.ProfileSummary, error) {
+	rows, err := r.db.Query(ctx, `
+		SELECT area_name, tier, COUNT(*) FROM lead_scores
+		WHERE profile_id = $1
+		GROUP BY area_name, tier`, profileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	sum := &model.ProfileSummary{ProfileID: profileID, Tiers: map[string]int{}, Areas: []model.AreaTierInfo{}}
+	byArea := map[string]*model.AreaTierInfo{}
+	for rows.Next() {
+		var area, tier string
+		var n int
+		if err := rows.Scan(&area, &tier, &n); err != nil {
+			return nil, err
+		}
+		sum.Total += n
+		sum.Tiers[tier] += n
+		a := byArea[area]
+		if a == nil {
+			a = &model.AreaTierInfo{Name: area, Tiers: map[string]int{}}
+			byArea[area] = a
+		}
+		a.Total += n
+		a.Tiers[tier] += n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for _, a := range byArea {
+		sum.Areas = append(sum.Areas, *a)
+	}
+	sort.Slice(sum.Areas, func(i, j int) bool {
+		if sum.Areas[i].Total != sum.Areas[j].Total {
+			return sum.Areas[i].Total > sum.Areas[j].Total
+		}
+		return sum.Areas[i].Name < sum.Areas[j].Name
+	})
+	return sum, nil
 }

@@ -119,6 +119,8 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 			// Scoring profiles (lead ranking, e.g. GuestChatPro)
 			protected.Get("/scoring/options", h.Scoring.Options)
 			protected.Get("/scoring/profiles", h.Scoring.ListProfiles)
+			protected.Get("/scoring/profiles/{id}", h.Scoring.GetProfile)
+			protected.Get("/scoring/profiles/{id}/summary", h.Scoring.Summary)
 			protected.Post("/scoring/profiles", h.Scoring.CreateProfile)
 			protected.Put("/scoring/profiles/{id}", h.Scoring.UpdateProfile)
 			protected.Delete("/scoring/profiles/{id}", h.Scoring.DeleteProfile)

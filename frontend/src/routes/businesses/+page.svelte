@@ -2,8 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
-  import type { BusinessLead, LeadStatus, ScoringProfile, Tier, Area } from '$lib/types';
-  import TierBadge from '$lib/components/TierBadge.svelte';
+  import type { BusinessLead, LeadStatus } from '$lib/types';
   import Badge from '$lib/components/Badge.svelte';
   import Pagination from '$lib/components/Pagination.svelte';
   import BusinessDetailDrawer from '$lib/components/BusinessDetailDrawer.svelte';
@@ -39,14 +38,6 @@
   let hasPhone = $state(false);
   let hasWebsite = $state(false);
 
-  // Ranking by a scoring profile (e.g. GuestChatPro); the choice is remembered in this browser.
-  let profiles = $state.raw<ScoringProfile[]>([]);
-  let rankProfile = $state<string>('');
-  let selectedTiers = $state<Tier[]>([]);
-  let scoreArea = $state('');
-  let areaNames = $state<string[]>([]);
-  const TIERS: Tier[] = ['hot', 'good', 'low', 'skip'];
-
   // Drawers & Modals
   let selectedLead = $state<BusinessLead | null>(null);
   let showDrawer = $state(false);
@@ -68,8 +59,7 @@
         min_rating: minRating ? Number(minRating) : undefined,
         has_email: hasEmail ? true : undefined,
         has_phone: hasPhone ? true : undefined,
-        has_website: hasWebsite ? true : undefined,
-        ...rankParams()
+        has_website: hasWebsite ? true : undefined
       };
 
       const res = await api.get<{
@@ -120,43 +110,6 @@
     }
   }
 
-  function rankParams(): Record<string, any> {
-    if (!rankProfile) return {};
-    return {
-      score_profile: rankProfile,
-      sort_by: 'score',
-      tiers: selectedTiers.length ? selectedTiers.join(',') : undefined,
-      score_area: scoreArea || undefined
-    };
-  }
-
-  async function loadRanking() {
-    try {
-      profiles = ((await api.get<ScoringProfile[]>('/api/v1/scoring/profiles')) || []).filter((p) => p.is_active);
-      const saved = localStorage.getItem('rank_profile');
-      const pick = profiles.find((p) => p.id === saved) ?? (saved === 'off' ? undefined : profiles[0]);
-      rankProfile = pick?.id ?? '';
-      areaNames = ((await api.get<Area[]>('/api/v1/areas')) || []).map((a) => a.name);
-    } catch {
-      /* ranking is optional */
-    }
-  }
-
-  function setRankProfile(id: string) {
-    rankProfile = id;
-    localStorage.setItem('rank_profile', id || 'off');
-    selectedTiers = [];
-    scoreArea = '';
-    page = 1;
-    fetchBusinesses();
-  }
-
-  function toggleTier(t: Tier) {
-    selectedTiers = selectedTiers.includes(t) ? selectedTiers.filter((x) => x !== t) : [...selectedTiers, t];
-    page = 1;
-    fetchBusinesses();
-  }
-
   async function loadCategories() {
     try {
       const res = await api.get<string[]>('/api/v1/businesses/categories');
@@ -192,8 +145,7 @@
     showDrawer = true;
   }
 
-  onMount(async () => {
-    await loadRanking();
+  onMount(() => {
     fetchBusinesses();
     loadCategories();
     loadKeywords();
@@ -227,46 +179,6 @@
 
   <!-- Filter Bar -->
   <div class="bg-zinc-950 border border-zinc-800/90 rounded-2xl p-4 shadow-sm space-y-3.5">
-
-    <!-- Ranking -->
-    {#if profiles.length}
-      <div class="flex flex-wrap items-center gap-2 pb-3 border-b border-zinc-900/80">
-        <span class="text-[11px] font-medium text-zinc-500 uppercase tracking-wider mr-1">Rank by:</span>
-        <select
-          value={rankProfile}
-          onchange={(e) => setRankProfile(e.currentTarget.value)}
-          class="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-zinc-200 text-xs cursor-pointer"
-        >
-          <option value="">Off (newest first)</option>
-          {#each profiles as p (p.id)}
-            <option value={p.id}>{p.name}</option>
-          {/each}
-        </select>
-        {#if rankProfile}
-          {#each TIERS as t (t)}
-            <button
-              onclick={() => toggleTier(t)}
-              class="rounded-full cursor-pointer transition {selectedTiers.length && !selectedTiers.includes(t) ? 'opacity-40 hover:opacity-80' : ''}"
-              title="Show only these tiers"
-            >
-              <TierBadge tier={t} />
-            </button>
-          {/each}
-          <select
-            bind:value={scoreArea}
-            onchange={() => { page = 1; fetchBusinesses(); }}
-            class="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-zinc-200 text-xs cursor-pointer"
-            title="Area used for the HOT/GOOD cut-offs"
-          >
-            <option value="">All areas</option>
-            {#each areaNames as a (a)}
-              <option value={a}>{a}</option>
-            {/each}
-          </select>
-          <a href="/scoring" class="text-[11px] text-zinc-500 hover:text-white ml-auto">Edit scoring →</a>
-        {/if}
-      </div>
-    {/if}
 
     <!-- Top Row: Search, Keyword, Category, Rating -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-start">
@@ -382,7 +294,6 @@
         <thead class="bg-black border-b border-zinc-800 text-[11px] uppercase tracking-wider text-zinc-400 font-semibold">
           <tr>
             <th class="px-4 py-3.5 w-12 text-center" title="Mark if already contacted">Done</th>
-            {#if rankProfile}<th class="px-4 py-3.5">Rank</th>{/if}
             <th class="px-4 py-3.5">Business Name</th>
             <th class="px-4 py-3.5">Category</th>
             <th class="px-4 py-3.5">Website</th>
@@ -395,14 +306,14 @@
         <tbody class="divide-y divide-zinc-900 text-zinc-300">
           {#if isLoading}
             <tr>
-              <td colspan={rankProfile ? 9 : 8} class="px-5 py-16 text-center text-zinc-500">
+              <td colspan="8" class="px-5 py-16 text-center text-zinc-500">
                 <RefreshCw class="w-5 h-5 animate-spin mx-auto mb-2 text-zinc-400" />
                 <span>Loading raw data...</span>
               </td>
             </tr>
           {:else if leads.length === 0}
             <tr>
-              <td colspan={rankProfile ? 9 : 8} class="px-5 py-16 text-center text-zinc-500">
+              <td colspan="8" class="px-5 py-16 text-center text-zinc-500">
                 No entries match your filters.
               </td>
             </tr>
@@ -419,19 +330,6 @@
                     title={lead.contacted ? 'Contacted - Click to unmark' : 'Click to mark as contacted'}
                   />
                 </td>
-
-                {#if rankProfile}
-                  <td class="px-4 py-3.5 whitespace-nowrap">
-                    {#if lead.score}
-                      <TierBadge tier={lead.score.tier} score={lead.score.score} overridden={!!lead.score.tier_override} />
-                      <div class="text-[10px] text-zinc-500 mt-0.5 max-w-[140px] truncate" title={lead.score.note || ''}>
-                        {lead.score.area_name || '—'}{(lead.group_name || lead.suggested_group_name) ? ` · ${lead.group_name || lead.suggested_group_name}` : ''}
-                      </div>
-                    {:else}
-                      <span class="text-zinc-600 text-[11px]" title="This scoring profile doesn't apply to this kind of place">n/a</span>
-                    {/if}
-                  </td>
-                {/if}
 
                 <td class="px-4 py-3.5 font-medium max-w-xs truncate {lead.contacted ? 'text-zinc-400' : 'text-white'}">
                   <div class="flex items-center gap-1.5">
@@ -546,7 +444,6 @@
   onClose={() => (showDrawer = false)}
   onToggleContacted={(l, contacted) => toggleContacted(l, contacted)}
   onStatusChange={(l, status) => setStatus(l, status)}
-  onScoreChanged={fetchBusinesses}
 />
 
 <ExportModal
@@ -560,8 +457,7 @@
     has_email: hasEmail ? true : undefined,
     has_phone: hasPhone ? true : undefined,
     has_website: hasWebsite ? true : undefined,
-    min_rating: minRating,
-    ...rankParams()
+    min_rating: minRating
   }}
 />
 

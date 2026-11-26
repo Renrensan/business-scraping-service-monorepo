@@ -116,6 +116,7 @@ type BusinessFilter struct {
 	ScoreProfileID   *uuid.UUID
 	ScoreProfileName string // used when ScoreProfileID is not set
 	Tiers            []string
+	ScoredOnly       bool // only leads the profile applies to (have a score)
 	ScoreArea        string
 
 	SortBy    string

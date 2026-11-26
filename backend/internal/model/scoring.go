@@ -21,6 +21,20 @@ type ScoringProfile struct {
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
 
+// ProfileSummary counts a profile's leads by tier, overall and per area, for its prospects page.
+type ProfileSummary struct {
+	ProfileID uuid.UUID      `json:"profile_id"`
+	Total     int            `json:"total"`
+	Tiers     map[string]int `json:"tiers"`
+	Areas     []AreaTierInfo `json:"areas"`
+}
+
+type AreaTierInfo struct {
+	Name  string         `json:"name"` // "" = leads outside every known area (default cut-offs)
+	Total int            `json:"total"`
+	Tiers map[string]int `json:"tiers"`
+}
+
 // LeadScore is a lead's score and tier under one profile.
 type LeadScore struct {
 	ProfileID    uuid.UUID       `json:"profile_id"`

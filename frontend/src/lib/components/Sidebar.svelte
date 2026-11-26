@@ -1,5 +1,8 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { onMount } from 'svelte';
+  import { api } from '$lib/api/client';
+  import type { ScoringProfile } from '$lib/types';
   import { sidebar } from '$lib/stores/sidebar.svelte';
   import { 
     LayoutDashboard, 
@@ -10,7 +13,7 @@
     Settings, 
     X,
     PanelLeftClose,
-    PanelLeftOpen, Trophy, History
+    PanelLeftOpen, Trophy, History, Target
   } from 'lucide-svelte';
 
   const navItems = [
@@ -23,6 +26,16 @@
     { label: 'Export', href: '/export', icon: Download },
     { label: 'Settings', href: '/settings', icon: Settings },
   ];
+  // One ranked "prospects" page per active scoring profile.
+  let prospects = $state.raw<{ label: string; href: string }[]>([]);
+  onMount(async () => {
+    try {
+      const list = (await api.get<ScoringProfile[]>('/api/v1/scoring/profiles')) || [];
+      prospects = list.filter((p) => p.is_active).map((p) => ({ label: p.name, href: `/prospects/${p.id}` }));
+    } catch {
+      /* not signed in yet, or no profiles */
+    }
+  });
 </script>
 
 <!-- Mobile Overlay -->
@@ -82,6 +95,24 @@
     <nav class="p-2.5 space-y-1">
       {#each navItems as item (item.href)}
         {@const isActive = page.url.pathname === item.href || (item.href !== '/' && page.url.pathname.startsWith(item.href))}
+        {#if item.href === '/scoring' && prospects.length}
+          {#if sidebar.isOpen}
+            <div class="px-3.5 pt-2 pb-0.5 text-[10px] uppercase tracking-wider text-zinc-600 font-semibold">Prospects</div>
+          {/if}
+          {#each prospects as pr (pr.href)}
+            {@const prActive = page.url.pathname === pr.href}
+            <a
+              href={pr.href}
+              onclick={() => sidebar.closeMobile()}
+              title={!sidebar.isOpen ? `${pr.label} prospects` : undefined}
+              class="flex items-center rounded-xl text-xs transition group relative {sidebar.isOpen ? 'gap-3 px-3.5 py-2' : 'justify-center p-2.5'} {prActive ? 'bg-white text-black font-semibold shadow-sm' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/80 font-medium'}"
+            >
+              <Target class="w-4 h-4 shrink-0 {prActive ? 'text-black' : 'text-zinc-400 group-hover:text-white'}" />
+              {#if sidebar.isOpen}<span class="truncate">{pr.label}</span>{/if}
+            </a>
+          {/each}
+          {#if sidebar.isOpen}<div class="h-1"></div>{/if}
+        {/if}
         <a
           href={item.href}
           onclick={() => sidebar.closeMobile()}

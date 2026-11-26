@@ -30,7 +30,8 @@ func main() {
 	// 1. Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Printf("Failed to load config: %v\n", err)
+		// The logger is configured from cfg, so this uses slog's default (stderr).
+		slog.Error("Failed to load config", "error", err)
 		os.Exit(1)
 	}
 
@@ -43,7 +44,6 @@ func main() {
 	// 3. Connect to PostgreSQL
 	dbPool, err := repository.InitDB(ctx, cfg.DatabaseURL)
 	if err != nil {
-		fmt.Printf("Failed to connect to PostgreSQL: %v\n", err)
 		slog.Error("Failed to connect to PostgreSQL", "error", err)
 		os.Exit(1)
 	}
@@ -52,24 +52,17 @@ func main() {
 	// 4. Connect to Redis
 	redisOpt, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
-		fmt.Printf("Failed to parse Redis URL: %v\n", err)
 		slog.Error("Failed to parse Redis URL", "error", err)
 		os.Exit(1)
 	}
 	redisCli := redis.NewClient(redisOpt)
 	if err := redisCli.Ping(ctx).Err(); err != nil {
-		fmt.Printf("Failed to connect to Redis: %v\n", err)
 		slog.Error("Failed to connect to Redis", "error", err)
 		os.Exit(1)
 	}
 	defer redisCli.Close()
 
-	fmt.Printf("[SERVER] Business Scraping Service Backend Ready\n")
-	fmt.Printf("  Port:        %d\n", cfg.Port)
-	fmt.Printf("  Environment: %s\n", cfg.NodeEnv)
-	fmt.Printf("  Database:    Connected\n")
-	fmt.Printf("  Redis:       Connected\n")
-	fmt.Printf("[SERVER] Listening on: http://0.0.0.0:%d\n\n", cfg.Port)
+	slog.Info("Backend ready: database and Redis connected", "port", cfg.Port, "environment", cfg.NodeEnv)
 
 	// 5. Initialize Repositories
 	adminRepo := repository.NewAdminRepository(dbPool)

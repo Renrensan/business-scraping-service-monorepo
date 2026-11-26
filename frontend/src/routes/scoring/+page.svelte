@@ -17,8 +17,8 @@
     areas: { name: string; hot: number; good: number }[];
   };
 
-  let profiles = $state<ScoringProfile[]>([]);
-  let options = $state<Options | null>(null);
+  let profiles = $state.raw<ScoringProfile[]>([]);
+  let options = $state.raw<Options | null>(null);
   let draft = $state<Draft | null>(null);
   let saving = $state(false);
 

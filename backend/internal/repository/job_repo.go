@@ -45,7 +45,7 @@ func scanJob(row pgx.Row) (*model.ScrapeJob, error) {
 		job.ErrorMessage = *errMsg
 	}
 	if len(metaBytes) > 0 {
-		_ = json.Unmarshal(metaBytes, &job.Metadata)
+		decodeForDisplay(metaBytes, &job.Metadata, "scrape_jobs", job.ID, "metadata")
 	}
 	return &job, nil
 }

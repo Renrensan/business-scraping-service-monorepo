@@ -5,7 +5,6 @@ package repository
 import (
 	"business-scraping-service/backend/internal/model"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -313,12 +312,12 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 			lead.Score = sc.toScore(*filter.ScoreProfileID)
 		}
 
-		_ = json.Unmarshal(subcatBytes, &lead.Subcategories)
-		_ = json.Unmarshal(scrapeKwBytes, &lead.ScrapeKeywords)
-		_ = json.Unmarshal(emailsBytes, &lead.Emails)
-		_ = json.Unmarshal(phonesBytes, &lead.Phones)
-		_ = json.Unmarshal(hoursBytes, &lead.OpeningHours)
-		_ = json.Unmarshal(photosBytes, &lead.Photos)
+		decodeForDisplay(subcatBytes, &lead.Subcategories, "business_leads", lead.ID, "subcategories")
+		decodeForDisplay(scrapeKwBytes, &lead.ScrapeKeywords, "business_leads", lead.ID, "scrape_keywords")
+		decodeForDisplay(emailsBytes, &lead.Emails, "business_leads", lead.ID, "emails")
+		decodeForDisplay(phonesBytes, &lead.Phones, "business_leads", lead.ID, "phones")
+		decodeForDisplay(hoursBytes, &lead.OpeningHours, "business_leads", lead.ID, "opening_hours")
+		decodeForDisplay(photosBytes, &lead.Photos, "business_leads", lead.ID, "photos")
 
 		items = append(items, &lead)
 	}

@@ -46,7 +46,9 @@ func scanProfile(row pgx.Row) (*model.ScoringProfile, error) {
 	if err := row.Scan(&p.ID, &p.Name, &p.Description, &applies, &p.Config, &p.IsActive, &p.ScoredLeads, &p.CreatedAt, &p.UpdatedAt); err != nil {
 		return nil, err
 	}
-	_ = json.Unmarshal(applies, &p.AppliesToTypes)
+	if err := decodeJSON(applies, &p.AppliesToTypes); err != nil {
+		return nil, fmt.Errorf("scoring profile %s: reading applies_to_types: %w", p.ID, err)
+	}
 	if p.AppliesToTypes == nil {
 		p.AppliesToTypes = []string{}
 	}
@@ -195,8 +197,8 @@ func (r *ScoringRepository) LeadsForScoring(ctx context.Context, ids []uuid.UUID
 			&l.GroupType, &l.GroupName, &l.SuggestedGroupType, &l.SuggestedGroupName); err != nil {
 			return nil, err
 		}
-		_ = json.Unmarshal(types, &l.Types)
-		_ = json.Unmarshal(emails, &l.Emails)
+		decodeForDisplay(types, &l.Types, "business_leads", l.ID, "subcategories")
+		decodeForDisplay(emails, &l.Emails, "business_leads", l.ID, "emails")
 		deref := func(p *string) string {
 			if p == nil {
 				return ""

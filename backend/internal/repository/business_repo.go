@@ -164,11 +164,23 @@ func (r *BusinessRepository) Upsert(ctx context.Context, lead *model.BusinessLea
 		lead.ID = existing.ID
 		lead.CreatedAt = existing.CreatedAt
 
+		// These lists are merged and written back: if one can't be read, stop rather than
+		// overwrite the stored values with only the new ones.
 		var existingEmails, existingPhones, existingSubcats, existingScrapeKws []string
-		_ = json.Unmarshal(emailsBytes, &existingEmails)
-		_ = json.Unmarshal(phonesBytes, &existingPhones)
-		_ = json.Unmarshal(subcatBytes, &existingSubcats)
-		_ = json.Unmarshal(scrapeKwBytes, &existingScrapeKws)
+		for _, c := range []struct {
+			name string
+			raw  []byte
+			dst  *[]string
+		}{
+			{"emails", emailsBytes, &existingEmails},
+			{"phones", phonesBytes, &existingPhones},
+			{"subcategories", subcatBytes, &existingSubcats},
+			{"scrape_keywords", scrapeKwBytes, &existingScrapeKws},
+		} {
+			if err := decodeJSON(c.raw, c.dst); err != nil {
+				return false, fmt.Errorf("lead %s: reading stored %s: %w", existing.ID, c.name, err)
+			}
+		}
 
 		lead.Emails = mergeUniqueStrings(existingEmails, lead.Emails)
 		lead.Phones = mergeUniqueStrings(existingPhones, lead.Phones)
@@ -414,12 +426,12 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 		return nil, err
 	}
 
-	_ = json.Unmarshal(subcatBytes, &lead.Subcategories)
-	_ = json.Unmarshal(scrapeKwBytes, &lead.ScrapeKeywords)
-	_ = json.Unmarshal(emailsBytes, &lead.Emails)
-	_ = json.Unmarshal(phonesBytes, &lead.Phones)
-	_ = json.Unmarshal(hoursBytes, &lead.OpeningHours)
-	_ = json.Unmarshal(photosBytes, &lead.Photos)
+	decodeForDisplay(subcatBytes, &lead.Subcategories, "business_leads", lead.ID, "subcategories")
+	decodeForDisplay(scrapeKwBytes, &lead.ScrapeKeywords, "business_leads", lead.ID, "scrape_keywords")
+	decodeForDisplay(emailsBytes, &lead.Emails, "business_leads", lead.ID, "emails")
+	decodeForDisplay(phonesBytes, &lead.Phones, "business_leads", lead.ID, "phones")
+	decodeForDisplay(hoursBytes, &lead.OpeningHours, "business_leads", lead.ID, "opening_hours")
+	decodeForDisplay(photosBytes, &lead.Photos, "business_leads", lead.ID, "photos")
 
 	return &lead, nil
 }

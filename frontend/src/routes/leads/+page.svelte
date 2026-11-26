@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { SvelteSet } from 'svelte/reactivity';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
   import type { BusinessLead, LeadStatus } from '$lib/types';
@@ -44,6 +45,48 @@
 
   let searchTimeout: ReturnType<typeof setTimeout> | undefined;
 
+  // Bulk selection (this page's rows): unmark several leads at once.
+  const selected = new SvelteSet<string>();
+  let bulkBusy = $state(false);
+  const allSelected = $derived(leads.length > 0 && leads.every((l) => selected.has(l.id)));
+  const someSelected = $derived(selected.size > 0 && !allSelected);
+
+  function toggleAll() {
+    if (allSelected) selected.clear();
+    else for (const l of leads) selected.add(l.id);
+  }
+
+  function toggleOne(id: string) {
+    if (selected.has(id)) selected.delete(id);
+    else selected.add(id);
+  }
+
+  async function unmarkSelected() {
+    const ids = [...selected];
+    if (!ids.length) return;
+    if (!confirm(`Unmark ${ids.length} lead${ids.length === 1 ? '' : 's'} as contacted? They move back to Raw Data only.`)) return;
+    bulkBusy = true;
+    let failed = 0;
+    // One request per lead (a few at a time) so each lead keeps its own audit and history entry.
+    const queue = [...ids];
+    const worker = async () => {
+      for (let id = queue.shift(); id; id = queue.shift()) {
+        try {
+          await api.patch(`/api/v1/businesses/${id}/contacted`, { contacted: false });
+          selected.delete(id);
+        } catch {
+          failed++;
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, ids.length) }, worker));
+    bulkBusy = false;
+    const done = ids.length - failed;
+    if (done) toast.success(`Unmarked ${done} lead${done === 1 ? '' : 's'}`);
+    if (failed) toast.error(`${failed} could not be unmarked; they are still selected`);
+    await fetchLeads();
+  }
+
   async function fetchLeads() {
     try {
       isLoading = true;
@@ -69,6 +112,8 @@
 
       if (res) {
         leads = res.items || [];
+        const shown = new Set(leads.map((l) => l.id));
+        for (const id of selected) if (!shown.has(id)) selected.delete(id);
         totalCount = res.total_count || 0;
         totalPages = res.total_pages || 1;
       }
@@ -287,12 +332,39 @@
     </div>
   </div>
 
+  <!-- Bulk actions -->
+  {#if selected.size}
+    <div class="sticky top-2 z-20 flex flex-wrap items-center gap-3 px-4 py-2.5 rounded-xl border border-zinc-700 bg-zinc-900/95 backdrop-blur text-xs shadow-lg">
+      <span class="text-white font-semibold">{selected.size} selected</span>
+      <button
+        onclick={unmarkSelected}
+        disabled={bulkBusy}
+        class="px-3 py-1.5 rounded-lg bg-rose-500/15 border border-rose-500/40 text-rose-300 hover:bg-rose-500/25 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+      >
+        {#if bulkBusy}<RefreshCw class="w-3.5 h-3.5 animate-spin" />{:else}<UserMinus class="w-3.5 h-3.5" />{/if}
+        Unmark contacted
+      </button>
+      <button onclick={() => selected.clear()} disabled={bulkBusy} class="ml-auto text-zinc-400 hover:text-white cursor-pointer disabled:opacity-50">Clear selection</button>
+    </div>
+  {/if}
+
   <!-- Data Table -->
   <div class="bg-zinc-950 border border-zinc-800/90 rounded-2xl overflow-hidden shadow-sm">
     <div class="overflow-x-auto">
       <table class="w-full text-left text-xs">
         <thead class="bg-black border-b border-zinc-800 text-[11px] uppercase tracking-wider text-zinc-400 font-semibold">
           <tr>
+            <th class="pl-4 pr-1 py-3.5 w-8">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                indeterminate={someSelected}
+                onchange={toggleAll}
+                disabled={!leads.length}
+                class="w-4 h-4 rounded border-zinc-700 bg-zinc-900 accent-white cursor-pointer align-middle"
+                aria-label="Select all leads on this page"
+              />
+            </th>
             <th class="px-4 py-3.5" title="Cold: no response · Warm: responded · Hot: interested">Status</th>
             <th class="px-4 py-3.5">Business Name</th>
             <th class="px-4 py-3.5">Category</th>
@@ -306,14 +378,14 @@
         <tbody class="divide-y divide-zinc-900 text-zinc-300">
           {#if isLoading}
             <tr>
-              <td colspan="8" class="px-5 py-16 text-center text-zinc-500">
+              <td colspan="9" class="px-5 py-16 text-center text-zinc-500">
                 <RefreshCw class="w-5 h-5 animate-spin mx-auto mb-2 text-zinc-400" />
                 <span>Loading leads...</span>
               </td>
             </tr>
           {:else if leads.length === 0}
             <tr>
-              <td colspan="8" class="px-5 py-16 text-center text-zinc-500">
+              <td colspan="9" class="px-5 py-16 text-center text-zinc-500">
                 {#if selectedStatuses.length || selectedKeywords.length || search || selectedCategory || minRating || hasEmail || hasPhone || hasWebsite}
                   No leads match your filters.
                 {:else}
@@ -329,7 +401,16 @@
             </tr>
           {:else}
             {#each leads as lead (lead.id)}
-              <tr class="hover:bg-zinc-900/40 transition bg-emerald-950/5">
+              <tr class="hover:bg-zinc-900/40 transition {selected.has(lead.id) ? 'bg-zinc-900/60' : 'bg-emerald-950/5'}">
+                <td class="pl-4 pr-1 py-3.5 w-8">
+                  <input
+                    type="checkbox"
+                    checked={selected.has(lead.id)}
+                    onchange={() => toggleOne(lead.id)}
+                    class="w-4 h-4 rounded border-zinc-700 bg-zinc-900 accent-white cursor-pointer align-middle"
+                    aria-label="Select {lead.name}"
+                  />
+                </td>
                 <!-- Lead status: Cold / Warm / Hot, plus remove from pipeline -->
                 <td class="px-4 py-3.5">
                   <div class="flex items-center gap-1.5">

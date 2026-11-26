@@ -7,24 +7,21 @@
   import type { ProfileSummary, ScoringProfile } from '$lib/types';
   import ProspectsList from '$lib/components/ProspectsList.svelte';
   import ScoringProfileEditor, { type ScoringOptions } from '$lib/components/ScoringProfileEditor.svelte';
-  import { Trophy, Plus, RefreshCw } from 'lucide-svelte';
+  import { scoringProfiles } from '$lib/stores/scoringProfiles.svelte';
+  import { Trophy, RefreshCw } from 'lucide-svelte';
 
   type Tab = 'prospects' | 'settings';
 
   const profileId = $derived(page.params.id ?? '');
   const tab = $derived<Tab>(page.url.searchParams.get('tab') === 'settings' ? 'settings' : 'prospects');
 
-  let profiles = $state.raw<ScoringProfile[]>([]);
   let profile = $state.raw<ScoringProfile | null>(null);
   let summary = $state.raw<ProfileSummary | null>(null);
   let options = $state.raw<ScoringOptions | null>(null);
-  let creating = $state(false);
   let notFound = $state(false);
   let rescoring = $state(false);
 
-  async function loadProfiles() {
-    profiles = (await api.get<ScoringProfile[]>('/api/v1/scoring/profiles')) || [];
-  }
+  const loadProfiles = () => scoringProfiles.load().catch(() => []);
 
   async function loadProfile(id: string) {
     try {
@@ -61,10 +58,8 @@
   }
 
   async function onSaved(p: ScoringProfile) {
-    creating = false;
     await loadProfiles();
-    if (p.id === profileId) await loadProfile(p.id);
-    else goto(`/scoring/${p.id}`);
+    await loadProfile(p.id);
   }
 
   async function onDeleted() {
@@ -73,12 +68,10 @@
   }
 
   $effect(() => {
-    creating = false;
     loadProfile(profileId);
   });
 
   $effect(() => {
-    loadProfiles().catch(() => {});
     api.get<ScoringOptions>('/api/v1/scoring/options').then((o) => (options = o)).catch(() => {});
   });
 </script>
@@ -87,22 +80,12 @@
   <!-- Header: pick the product, then see its prospects or how it's scored -->
   <div class="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-2 border-b border-zinc-900">
     <div class="space-y-1">
-      <div class="flex items-center gap-2">
-        <Trophy class="w-5 h-5 text-zinc-400" />
-        <h1 class="text-2xl font-display font-light text-white tracking-[-0.04em]">Scoring</h1>
-        <select
-          value={creating ? '' : profileId}
-          onchange={(e) => goto(`/scoring/${e.currentTarget.value}${tab === 'settings' ? '?tab=settings' : ''}`)}
-          class="ml-2 bg-zinc-900 border border-zinc-700 rounded-xl px-3 py-1.5 text-white text-sm font-medium cursor-pointer"
-          aria-label="Scoring profile"
-        >
-          {#if creating}<option value="">New profile…</option>{/if}
-          {#each profiles as p (p.id)}
-            <option value={p.id}>{p.name}{p.is_active ? '' : ' (inactive)'}</option>
-          {/each}
-        </select>
-      </div>
-      {#if profile && !creating}
+      <p class="text-[11px] text-zinc-500 flex items-center gap-1.5"><Trophy class="w-3.5 h-3.5" /> Scoring</p>
+      <h1 class="text-2xl font-display font-light text-white tracking-[-0.04em]">
+        {profile?.name ?? '…'}
+        {#if profile && !profile.is_active}<span class="ml-2 align-middle text-[10px] px-2 py-0.5 rounded-full bg-zinc-900 text-zinc-500 border border-zinc-800">inactive</span>{/if}
+      </h1>
+      {#if profile}
         <p class="text-xs text-zinc-500">
           {profile.description || 'Ranks leads into HOT, GOOD and LOW for this product.'}
           · {summary?.total.toLocaleString() ?? '…'} leads{profile.applies_to_types.length ? ` (${profile.applies_to_types.join(', ')})` : ''}
@@ -113,16 +96,11 @@
       <button onclick={rescore} disabled={rescoring} class="px-3.5 py-2 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-300 hover:text-white text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50">
         <RefreshCw class="w-3.5 h-3.5 {rescoring ? 'animate-spin' : ''}" /> Rescore all
       </button>
-      <button onclick={() => (creating = true)} disabled={!options || creating} class="px-4 py-2 rounded-xl bg-white text-black text-xs font-semibold flex items-center gap-1.5 cursor-pointer disabled:opacity-50">
-        <Plus class="w-4 h-4" /> New profile
-      </button>
     </div>
   </div>
 
-  {#if creating && options}
-    <ScoringProfileEditor profile={null} {options} {onSaved} onCancel={() => (creating = false)} />
-  {:else if notFound}
-    <p class="py-12 text-center text-sm text-zinc-500">This scoring profile doesn't exist. Pick another one above.</p>
+  {#if notFound}
+    <p class="py-12 text-center text-sm text-zinc-500">This scoring profile doesn't exist. Pick another one under Scoring in the sidebar.</p>
   {:else if profile}
     <!-- Tabs -->
     <div class="flex gap-1 border-b border-zinc-900 text-xs">

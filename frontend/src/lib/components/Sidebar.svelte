@@ -1,6 +1,8 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { onMount } from 'svelte';
   import { sidebar } from '$lib/stores/sidebar.svelte';
+  import { scoringProfiles } from '$lib/stores/scoringProfiles.svelte';
   import { 
     LayoutDashboard, 
     Database,
@@ -10,7 +12,7 @@
     Settings, 
     X,
     PanelLeftClose,
-    PanelLeftOpen, Trophy, History
+    PanelLeftOpen, Trophy, History, ChevronDown, Plus
   } from 'lucide-svelte';
 
   const navItems = [
@@ -23,6 +25,18 @@
     { label: 'Export', href: '/export', icon: Download },
     { label: 'Settings', href: '/settings', icon: Settings },
   ];
+
+  // Scoring opens into one entry per profile (product).
+  const onScoring = $derived(page.url.pathname.startsWith('/scoring'));
+  let scoringOpen = $state(false);
+  $effect(() => {
+    if (onScoring) scoringOpen = true;
+  });
+  const showScoringChildren = $derived(scoringOpen && sidebar.isOpen);
+
+  onMount(() => {
+    scoringProfiles.load().catch(() => {});
+  });
 </script>
 
 <!-- Mobile Overlay -->
@@ -81,25 +95,60 @@
     <!-- Navigation -->
     <nav class="p-2.5 space-y-1">
       {#each navItems as item (item.href)}
-        {@const isActive = page.url.pathname === item.href || (item.href !== '/' && page.url.pathname.startsWith(item.href))}
-        <a
-          href={item.href}
-          onclick={() => sidebar.closeMobile()}
-          title={!sidebar.isOpen ? item.label : undefined}
-          class="flex items-center rounded-xl text-xs transition group relative {sidebar.isOpen ? 'gap-3 px-3.5 py-2.5' : 'justify-center p-2.5'} {isActive ? 'bg-white text-black font-semibold shadow-sm' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/80 font-medium'}"
-        >
-          <item.icon class="w-4 h-4 shrink-0 {isActive ? 'text-black' : 'text-zinc-400 group-hover:text-white'}" />
-          {#if sidebar.isOpen}
+        {#if item.href === '/scoring' && sidebar.isOpen}
+          <button
+            type="button"
+            onclick={() => (scoringOpen = !scoringOpen)}
+            aria-expanded={showScoringChildren}
+            class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs transition group cursor-pointer {onScoring ? 'text-white font-semibold' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/80 font-medium'}"
+          >
+            <item.icon class="w-4 h-4 shrink-0 {onScoring ? 'text-white' : 'text-zinc-400 group-hover:text-white'}" />
             <span class="truncate">{item.label}</span>
+            <ChevronDown class="w-3.5 h-3.5 ml-auto transition-transform {showScoringChildren ? 'rotate-180' : ''}" />
+          </button>
+          {#if showScoringChildren}
+            <div class="ml-5 pl-3 border-l border-zinc-800 space-y-0.5">
+              {#each scoringProfiles.list as p (p.id)}
+                {@const active = page.url.pathname === `/scoring/${p.id}`}
+                <a
+                  href="/scoring/{p.id}"
+                  onclick={() => sidebar.closeMobile()}
+                  class="flex items-center gap-2 px-3 py-2 rounded-lg text-xs transition {active ? 'bg-white text-black font-semibold' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/80'}"
+                >
+                  <span class="truncate">{p.name}</span>
+                  {#if !p.is_active}<span class="ml-auto text-[9px] {active ? 'text-zinc-500' : 'text-zinc-600'}">off</span>{/if}
+                </a>
+              {/each}
+              <a
+                href="/scoring/new"
+                onclick={() => sidebar.closeMobile()}
+                class="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs transition {page.url.pathname === '/scoring/new' ? 'bg-white text-black font-semibold' : 'text-zinc-500 hover:text-white hover:bg-zinc-900/80'}"
+              >
+                <Plus class="w-3 h-3" /> New profile
+              </a>
+            </div>
           {/if}
+        {:else}
+          {@const isActive = page.url.pathname === item.href || (item.href !== '/' && page.url.pathname.startsWith(item.href))}
+          <a
+            href={item.href}
+            onclick={() => sidebar.closeMobile()}
+            title={!sidebar.isOpen ? item.label : undefined}
+            class="flex items-center rounded-xl text-xs transition group relative {sidebar.isOpen ? 'gap-3 px-3.5 py-2.5' : 'justify-center p-2.5'} {isActive ? 'bg-white text-black font-semibold shadow-sm' : 'text-zinc-400 hover:text-white hover:bg-zinc-900/80 font-medium'}"
+          >
+            <item.icon class="w-4 h-4 shrink-0 {isActive ? 'text-black' : 'text-zinc-400 group-hover:text-white'}" />
+            {#if sidebar.isOpen}
+              <span class="truncate">{item.label}</span>
+            {/if}
 
-          <!-- Floating Tooltip when collapsed -->
-          {#if !sidebar.isOpen}
-            <span class="hidden md:group-hover:block absolute left-full ml-3 px-2.5 py-1 bg-zinc-900 text-white text-xs rounded-lg border border-zinc-700 shadow-xl whitespace-nowrap z-50 pointer-events-none">
-              {item.label}
-            </span>
-          {/if}
-        </a>
+            <!-- Floating Tooltip when collapsed -->
+            {#if !sidebar.isOpen}
+              <span class="hidden md:group-hover:block absolute left-full ml-3 px-2.5 py-1 bg-zinc-900 text-white text-xs rounded-lg border border-zinc-700 shadow-xl whitespace-nowrap z-50 pointer-events-none">
+                {item.label}
+              </span>
+            {/if}
+          </a>
+        {/if}
       {/each}
     </nav>
   </div>

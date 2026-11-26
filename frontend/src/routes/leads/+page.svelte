@@ -13,7 +13,7 @@
   import { getWhatsAppUrl } from '$lib/utils/format';
   import {
     Search, Download, Star,
-    Phone, Globe, Mail, RefreshCw, Eye, CheckCircle2, UserCheck, MessageSquare, UserMinus
+    Phone, Globe, Mail, RefreshCw, Eye, CheckCircle2, UserCheck, MessageSquare, UserMinus, Users
   } from 'lucide-svelte';
 
   let leads = $state<BusinessLead[]>([]);
@@ -357,6 +357,17 @@
                   <div class="text-[11px] text-zinc-500 font-normal truncate">
                     {lead.street || lead.address}
                   </div>
+                  {#if lead.main_contact_name}
+                    <button
+                      onclick={() => openDetail(lead)}
+                      class="mt-0.5 inline-flex items-center gap-1 text-[11px] text-zinc-300 font-normal hover:text-white cursor-pointer max-w-full truncate"
+                      title="Contact people"
+                    >
+                      <Users class="w-3 h-3 text-zinc-500 shrink-0" />
+                      <span class="truncate">{lead.main_contact_name}{lead.main_contact_role ? ` · ${lead.main_contact_role}` : ''}</span>
+                      {#if (lead.contact_count ?? 0) > 1}<span class="text-zinc-500">+{(lead.contact_count ?? 0) - 1}</span>{/if}
+                    </button>
+                  {/if}
                 </td>
 
                 <td class="px-4 py-3.5 whitespace-nowrap">
@@ -455,6 +466,7 @@
   onClose={() => (showDrawer = false)}
   onToggleContacted={(l, contacted) => toggleContacted(l, contacted)}
   onStatusChange={(l, status) => setStatus(l, status)}
+  onContactsChanged={fetchLeads}
 />
 
 <ExportModal

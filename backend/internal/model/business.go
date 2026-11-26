@@ -86,6 +86,12 @@ type BusinessLead struct {
 	// Score for the profile selected in a list request; all profiles' scores on the detail view.
 	Score  *LeadScore  `json:"score,omitempty"`
 	Scores []LeadScore `json:"scores,omitempty"`
+
+	// People recorded by admins: the first-added one and the total on list rows, all on detail.
+	MainContactName string        `json:"main_contact_name,omitempty"`
+	MainContactRole string        `json:"main_contact_role,omitempty"`
+	ContactCount    int           `json:"contact_count"`
+	Contacts        []LeadContact `json:"contacts,omitempty"`
 }
 
 type BusinessFilter struct {

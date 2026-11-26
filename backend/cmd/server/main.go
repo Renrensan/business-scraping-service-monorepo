@@ -120,6 +120,7 @@ func main() {
 
 	// Lead scoring (e.g. GuestChatPro): refreshed after scraping/enrichment, and fully at startup.
 	scoringRepo := repository.NewScoringRepository(dbPool)
+	contactRepo := repository.NewContactRepository(dbPool)
 	scorer := engine.NewScorer(scoringRepo, areaRepo)
 	workerPool.SetScorer(scorer)
 	scorer.RescoreAllInBackground()
@@ -131,7 +132,7 @@ func main() {
 	// 9. Initialize Services
 	authSvc := service.NewAuthService(adminRepo, sessionStore)
 	jobSvc := service.NewJobService(jobRepo, jobQueue)
-	businessSvc := service.NewBusinessService(businessRepo, scoringRepo)
+	businessSvc := service.NewBusinessService(businessRepo, scoringRepo, contactRepo)
 	exportSvc := service.NewExportService(businessRepo)
 	metricsSvc := service.NewMetricsService(businessRepo, scheduler)
 	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler, settingsRepo, quota, jobQueue, jobRepo, keywordRepo)
@@ -149,6 +150,7 @@ func main() {
 		Keyword:  handler.NewKeywordHandler(keywordSvc),
 		Area:     handler.NewAreaHandler(keywordSvc),
 		Scoring:  handler.NewScoringHandler(service.NewScoringService(scoringRepo, scorer)),
+		Contact:  handler.NewContactHandler(service.NewContactService(contactRepo)),
 	}
 
 	services := &api.Services{

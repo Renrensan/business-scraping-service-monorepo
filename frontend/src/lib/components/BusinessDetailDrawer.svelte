@@ -3,6 +3,7 @@
   import Badge from '$lib/components/Badge.svelte';
   import LeadStatusSelect from '$lib/components/LeadStatusSelect.svelte';
   import LeadScorePanel from '$lib/components/LeadScorePanel.svelte';
+  import LeadContactsPanel from '$lib/components/LeadContactsPanel.svelte';
   import { getLeadStatus } from '$lib/utils/leadStatus';
   import { getWhatsAppUrl } from '$lib/utils/format';
   import { api } from '$lib/api/client';
@@ -18,7 +19,8 @@
     onClose,
     onToggleContacted,
     onStatusChange,
-    onScoreChanged
+    onScoreChanged,
+    onContactsChanged
   }: {
     lead: BusinessLead | null;
     isOpen: boolean;
@@ -26,6 +28,7 @@
     onToggleContacted?: (lead: BusinessLead, contacted: boolean) => void;
     onStatusChange?: (lead: BusinessLead, status: LeadStatus) => void;
     onScoreChanged?: () => void;
+    onContactsChanged?: () => void;
   } = $props();
 
   async function handleStatusChange(status: LeadStatus) {
@@ -141,6 +144,9 @@
           <LeadStatusSelect size="md" value={lead.lead_status ?? 'cold'} onChange={handleStatusChange} />
         </div>
       {/if}
+
+      <!-- People at the business, recorded by admins -->
+      <LeadContactsPanel leadId={lead.id} onChanged={onContactsChanged} />
 
       <!-- Ranking (scoring profiles that apply to this lead) -->
       <LeadScorePanel leadId={lead.id} onChanged={onScoreChanged} />

@@ -21,6 +21,7 @@ type Handlers struct {
 	Keyword  *handler.KeywordHandler
 	Area     *handler.AreaHandler
 	Scoring  *handler.ScoringHandler
+	Contact  *handler.ContactHandler
 }
 
 type Services struct {
@@ -99,6 +100,10 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 			protected.Patch("/businesses/{id}/contacted", h.Business.PatchContacted)
 			protected.Patch("/businesses/{id}/status", h.Business.PatchStatus)
 			protected.Patch("/businesses/{id}/grouping", h.Scoring.SetLeadGrouping)
+			protected.Get("/businesses/{id}/contacts", h.Contact.List)
+			protected.Post("/businesses/{id}/contacts", h.Contact.Create)
+			protected.Put("/businesses/{id}/contacts/{contactID}", h.Contact.Update)
+			protected.Delete("/businesses/{id}/contacts/{contactID}", h.Contact.Delete)
 			protected.Patch("/businesses/{id}/scores/{profileID}", h.Scoring.SetScoreOverride)
 
 			// Scoring profiles (lead ranking, e.g. GuestChatPro)

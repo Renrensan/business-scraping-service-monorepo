@@ -22,7 +22,10 @@ func buildBusinessWhere(filter model.BusinessFilter) (string, []any) {
 	argIdx := 1
 
 	if filter.Search != "" {
-		whereClauses = append(whereClauses, fmt.Sprintf("(name ILIKE $%d OR address ILIKE $%d OR city ILIKE $%d OR category ILIKE $%d OR subcategories::text ILIKE $%d OR website ILIKE $%d OR primary_phone ILIKE $%d OR emails::text ILIKE $%d)", argIdx, argIdx, argIdx, argIdx, argIdx, argIdx, argIdx, argIdx))
+		whereClauses = append(whereClauses, fmt.Sprintf(`(name ILIKE $%[1]d OR address ILIKE $%[1]d OR city ILIKE $%[1]d OR category ILIKE $%[1]d
+			OR subcategories::text ILIKE $%[1]d OR website ILIKE $%[1]d OR primary_phone ILIKE $%[1]d OR emails::text ILIKE $%[1]d
+			OR EXISTS (SELECT 1 FROM lead_contacts c WHERE c.lead_id = business_leads.id
+			           AND (c.name ILIKE $%[1]d OR c.phone ILIKE $%[1]d OR c.email ILIKE $%[1]d OR c.role ILIKE $%[1]d)))`, argIdx))
 		args = append(args, "%"+filter.Search+"%")
 		argIdx++
 	}
@@ -273,7 +276,10 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 		       facebook_url, instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url,
 		       google_maps_url, opening_hours, photos, enrichment_status, last_scraped_at,
 		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at, scrape_keywords,
-		       group_type, group_name, suggested_group_type, suggested_group_name%s
+		       group_type, group_name, suggested_group_type, suggested_group_name,
+		       (SELECT COUNT(*) FROM lead_contacts c WHERE c.lead_id = business_leads.id),
+		       COALESCE((SELECT c.name FROM lead_contacts c WHERE c.lead_id = business_leads.id ORDER BY c.created_at, c.id LIMIT 1), ''),
+		       COALESCE((SELECT c.role FROM lead_contacts c WHERE c.lead_id = business_leads.id ORDER BY c.created_at, c.id LIMIT 1), '')%s
 		FROM %s
 		WHERE %s
 		%s
@@ -301,6 +307,7 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 			&lead.GoogleMapsURL, &hoursBytes, &photosBytes, &lead.EnrichmentStatus, &lead.LastScrapedAt,
 			&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.LeadStatus, &lead.CreatedAt, &lead.UpdatedAt, &scrapeKwBytes,
 			&lead.GroupType, &lead.GroupName, &lead.SuggestedGroupType, &lead.SuggestedGroupName,
+			&lead.ContactCount, &lead.MainContactName, &lead.MainContactRole,
 		}
 		var sc scoreScan
 		if scored {

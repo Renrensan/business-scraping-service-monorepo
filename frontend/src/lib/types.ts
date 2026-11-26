@@ -52,6 +52,10 @@ export interface BusinessLead {
   suggested_group_name?: string;
   score?: LeadScore;
   scores?: LeadScore[];
+  main_contact_name?: string;
+  main_contact_role?: string;
+  contact_count?: number;
+  contacts?: LeadContact[];
   last_scraped_at: string;
   last_enriched_at?: string;
   created_at: string;
@@ -241,3 +245,18 @@ export const GROUP_TYPE_LABELS: Record<GroupType, string> = {
   chain: 'Chain',
   skip: 'Skip (not a target)'
 };
+
+// ---- People at a lead's business, recorded by admins ----
+export interface LeadContact {
+  id: string;
+  lead_id: string;
+  name: string;
+  role: string;
+  phone: string;
+  email: string;
+  note: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type LeadContactInput = Pick<LeadContact, 'name' | 'role' | 'phone' | 'email' | 'note'>;

@@ -41,11 +41,45 @@ func IsQuotaError(err error) bool {
 
 const textSearchFieldMask = "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.websiteUri,places.nationalPhoneNumber,places.rating,places.userRatingCount,places.businessStatus,places.googleMapsUri,places.regularOpeningHours,places.editorialSummary,places.reviews,nextPageToken"
 
+// RequestGate is asked before every Places request; returning an error (normally wrapping
+// ErrQuotaExceeded) blocks the request. Used for the daily request budget.
+type RequestGate func(ctx context.Context) error
+
 type PlacesAPIClient struct {
 	apiKey     string
 	baseURL    string
 	httpClient *http.Client
 	pagePacing time.Duration
+	gate       RequestGate
+}
+
+// WithGate sets the gate checked before every request.
+func (c *PlacesAPIClient) WithGate(g RequestGate) *PlacesAPIClient {
+	c.gate = g
+	return c
+}
+
+type LatLng struct {
+	Latitude  float64 `json:"latitude"`
+	Longitude float64 `json:"longitude"`
+}
+
+// Rect is a map rectangle given by its south-west (Low) and north-east (High) corners.
+type Rect struct {
+	Low  LatLng `json:"low"`
+	High LatLng `json:"high"`
+}
+
+type locationRestriction struct {
+	Rectangle Rect `json:"rectangle"`
+}
+
+// SearchSpec describes one search. IncludedType "" means: infer it from the query (see InferIncludedType).
+// With Rect set, only places inside the rectangle are returned.
+type SearchSpec struct {
+	Query        string
+	IncludedType string
+	Rect         *Rect
 }
 
 // DefaultBaseURL is the Places API host. Overridable (GOOGLE_PLACES_BASE_URL) for local end-to-end tests.
@@ -68,6 +102,8 @@ type TextSearchRequest struct {
 	PageSize     int     `json:"pageSize,omitempty"`
 	PageToken    string  `json:"pageToken,omitempty"`
 	MinRating    float64 `json:"minRating,omitempty"`
+
+	LocationRestriction *locationRestriction `json:"locationRestriction,omitempty"`
 }
 
 type TextSearchResponse struct {
@@ -83,17 +119,38 @@ type TextSearchResponse struct {
 // newTextSearchRequest builds the request for a query. Google requires every page request to repeat
 // the parameters of the first one, so the included type is derived from the query the same way each time.
 func newTextSearchRequest(query string, pageSize int, pageToken string) TextSearchRequest {
-	return TextSearchRequest{
-		TextQuery:    query,
-		IncludedType: InferIncludedType(query),
+	return SearchSpec{Query: query}.request(pageSize, pageToken)
+}
+
+func (s SearchSpec) request(pageSize int, pageToken string) TextSearchRequest {
+	t := strings.TrimSpace(s.IncludedType)
+	if t == "" {
+		t = InferIncludedType(s.Query)
+	}
+	req := TextSearchRequest{
+		TextQuery:    s.Query,
+		IncludedType: t,
 		PageSize:     pageSize,
 		PageToken:    pageToken,
 	}
+	if s.Rect != nil {
+		req.LocationRestriction = &locationRestriction{Rectangle: *s.Rect}
+	}
+	return req
 }
 
 // doTextSearch sends one Text Search (New) request and turns Google's errors into typed errors:
 // ErrQuotaExceeded for quota/rate limits, ErrInvalidPageToken for rejected page tokens.
 func (c *PlacesAPIClient) doTextSearch(ctx context.Context, reqBody TextSearchRequest) (*TextSearchResponse, error) {
+	return c.doTextSearchMask(ctx, reqBody, textSearchFieldMask)
+}
+
+func (c *PlacesAPIClient) doTextSearchMask(ctx context.Context, reqBody TextSearchRequest, fieldMask string) (*TextSearchResponse, error) {
+	if c.gate != nil {
+		if err := c.gate(ctx); err != nil {
+			return nil, err
+		}
+	}
 	baseURL := c.baseURL
 	if baseURL == "" {
 		baseURL = "https://places.googleapis.com"
@@ -110,7 +167,7 @@ func (c *PlacesAPIClient) doTextSearch(ctx context.Context, reqBody TextSearchRe
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Goog-Api-Key", c.apiKey)
-	httpReq.Header.Set("X-Goog-FieldMask", textSearchFieldMask)
+	httpReq.Header.Set("X-Goog-FieldMask", fieldMask)
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -204,6 +261,11 @@ func (c *PlacesAPIClient) SearchPlacesText(ctx context.Context, query string, ma
 // SearchPlacesTextWithCursor executes a paginated Text Search starting from a given pageToken, traversing up to maxPages.
 // It returns the leads, the token for the next page, the number of pages fetched and whether Google has no more pages.
 func (c *PlacesAPIClient) SearchPlacesTextWithCursor(ctx context.Context, query string, startPageToken string, maxPages int, pageSize int) ([]*model.BusinessLead, string, int, bool, error) {
+	return c.SearchWithCursor(ctx, SearchSpec{Query: query}, startPageToken, maxPages, pageSize)
+}
+
+// SearchWithCursor is SearchPlacesTextWithCursor for any SearchSpec (type, area rectangle).
+func (c *PlacesAPIClient) SearchWithCursor(ctx context.Context, spec SearchSpec, startPageToken string, maxPages int, pageSize int) ([]*model.BusinessLead, string, int, bool, error) {
 	if c.apiKey == "" {
 		return nil, "", 0, false, fmt.Errorf("google api key is not configured")
 	}
@@ -222,7 +284,7 @@ func (c *PlacesAPIClient) SearchPlacesTextWithCursor(ctx context.Context, query 
 	var lastNextToken string
 
 	for pagesFetched < maxPages {
-		req := newTextSearchRequest(query, pageSize, pageToken)
+		req := spec.request(pageSize, pageToken)
 		apiResp, err := c.doTextSearch(ctx, req)
 
 		// A fresh page token can take a moment to become valid on Google's side: wait and retry once.
@@ -265,6 +327,48 @@ func (c *PlacesAPIClient) SearchPlacesTextWithCursor(ctx context.Context, query 
 	}
 
 	return allLeads, lastNextToken, pagesFetched, cycleFinished, nil
+}
+
+// LookupArea finds a place by name (e.g. "Bedugul, Bali") and returns its map viewport, for use as an
+// area. One request. Falls back to a ~2 km box around the place when Google gives no viewport.
+func (c *PlacesAPIClient) LookupArea(ctx context.Context, name string) (*Rect, string, error) {
+	if c.apiKey == "" {
+		return nil, "", fmt.Errorf("google api key is not configured")
+	}
+	resp, err := c.doTextSearchMask(ctx, TextSearchRequest{TextQuery: name, PageSize: 1}, "places.displayName,places.formattedAddress,places.viewport,places.location")
+	if err != nil {
+		return nil, "", err
+	}
+	if len(resp.Places) == 0 {
+		return nil, "", fmt.Errorf("no place found for %q", name)
+	}
+	raw, _ := json.Marshal(resp.Places[0])
+	var p struct {
+		DisplayName struct {
+			Text string `json:"text"`
+		} `json:"displayName"`
+		FormattedAddress string  `json:"formattedAddress"`
+		Viewport         *Rect   `json:"viewport"`
+		Location         *LatLng `json:"location"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, "", err
+	}
+	label := p.FormattedAddress
+	if label == "" {
+		label = p.DisplayName.Text
+	}
+	if p.Viewport != nil && p.Viewport.Low.Latitude < p.Viewport.High.Latitude && p.Viewport.Low.Longitude < p.Viewport.High.Longitude {
+		return p.Viewport, label, nil
+	}
+	if p.Location != nil {
+		const d = 0.018 // ~2 km
+		return &Rect{
+			Low:  LatLng{p.Location.Latitude - d, p.Location.Longitude - d},
+			High: LatLng{p.Location.Latitude + d, p.Location.Longitude + d},
+		}, label, nil
+	}
+	return nil, "", fmt.Errorf("google returned no location for %q", name)
 }
 
 func (c *PlacesAPIClient) pacing() time.Duration {

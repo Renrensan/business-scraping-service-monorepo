@@ -5,8 +5,7 @@
   import { toast } from 'svelte-sonner';
   import { 
     Play, Clock, Plus, Search, Check, Copy,
-    CheckCircle2, RefreshCw, Pencil, Trash2, X, Sparkles, AlertCircle, RotateCcw
-  } from 'lucide-svelte';
+    CheckCircle2, RefreshCw, Pencil, Trash2, X, Sparkles, AlertCircle, RotateCcw, MapPin } from 'lucide-svelte';
   import ConfirmModal from '$lib/components/ConfirmModal.svelte';
   import AddAutoKeywordModal from '$lib/components/AddAutoKeywordModal.svelte';
   import ScrapeKeywordModal from '$lib/components/ScrapeKeywordModal.svelte';
@@ -363,7 +362,18 @@
 
                   <!-- Cursor Token -->
                   <td class="py-3.5 px-4 whitespace-nowrap">
-                    {#if kw.next_page_token}
+                    {#if kw.mode === 'area'}
+                      <div class="flex flex-col gap-0.5" title="Area cells searched in this cycle. Busy areas are split into smaller cells.">
+                        <span class="text-[11px] text-zinc-300">
+                          <MapPin class="w-3 h-3 inline -mt-0.5 text-zinc-500" /> {kw.area_name || 'area removed'}{kw.included_type ? ` · ${kw.included_type}` : ''}
+                        </span>
+                        <span class="text-[11px] {kw.status === 'no_results' ? 'text-red-300' : 'text-zinc-500'}">
+                          {#if kw.status === 'no_results'}No results in this area
+                          {:else if kw.cells_total > 0}Cells {kw.cells_done}/{kw.cells_total}{kw.status === 'completed' ? ' · cycle done' : ''}
+                          {:else}Not started{/if}
+                        </span>
+                      </div>
+                    {:else if kw.next_page_token}
                       <div class="flex items-center gap-1.5">
                         <span class="text-xs font-mono text-zinc-400 max-w-[110px] truncate bg-black px-2 py-0.5 rounded border border-zinc-800" title={kw.next_page_token}>
                           {kw.next_page_token.substring(0, 10)}...
@@ -413,6 +423,16 @@
                     <span class="font-mono text-white font-semibold bg-zinc-900 px-2.5 py-0.5 rounded border border-zinc-800">
                       {kw.total_leads_scraped.toLocaleString()}
                     </span>
+                    {#if kw.last_scraped_at}
+                      <div class="text-[10px] mt-1 {kw.new_places_last_run > 0 ? 'text-emerald-400' : 'text-zinc-600'}" title="New places found by the last run">
+                        +{kw.new_places_last_run} new
+                      </div>
+                    {/if}
+                    {#if kw.next_eligible_at && new Date(kw.next_eligible_at) > new Date()}
+                      <div class="text-[10px] text-zinc-500" title="Recent runs found nothing new, so the scheduler runs this keyword less often. 'Scrape' still runs it now.">
+                        next auto run {new Date(kw.next_eligible_at).toLocaleDateString()}
+                      </div>
+                    {/if}
                   </td>
 
                   <!-- Last Scraped -->

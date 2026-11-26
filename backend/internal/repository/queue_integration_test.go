@@ -33,6 +33,12 @@ func testDB(t *testing.T) *pgxpool.Pool {
 	if _, err := pool.Exec(ctx, `TRUNCATE business_leads, scrape_jobs, scraper_keywords CASCADE`); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `DELETE FROM areas WHERE source <> 'preset'`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `TRUNCATE places_usage`); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := pool.Exec(ctx, `UPDATE scheduler_state SET next_run_at = NULL, last_run_at = NULL, quota_paused_until = NULL`); err != nil {
 		t.Fatal(err)
 	}

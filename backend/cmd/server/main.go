@@ -77,6 +77,8 @@ func main() {
 	businessRepo := repository.NewBusinessRepository(dbPool)
 	settingsRepo := repository.NewSettingsRepository(dbPool)
 	keywordRepo := repository.NewKeywordRepository(dbPool)
+	areaRepo := repository.NewAreaRepository(dbPool)
+	usageRepo := repository.NewUsageRepository(dbPool)
 
 	// 6. Initialize Redis Session Store
 	sessionStore := session.NewRedisStore(redisCli, session.DefaultSessionTTL)
@@ -98,7 +100,12 @@ func main() {
 	}
 
 	// 8. Initialize Extraction & Enrichment Engine & Scheduler
-	workerPool := engine.NewWorkerPool(cfg, jobRepo, businessRepo, keywordRepo, redisCli)
+	workerPool := engine.NewWorkerPool(cfg, jobRepo, businessRepo, keywordRepo, areaRepo, usageRepo, redisCli)
+	var placesBudget int
+	if err := settingsRepo.Get(ctx, service.PlacesBudgetSettingKey, &placesBudget); err != nil {
+		slog.Warn("Failed to load Places daily budget", "error", err)
+	}
+	workerPool.SetPlacesBudget(placesBudget)
 
 	schedulerStateRepo := repository.NewSchedulerStateRepository(dbPool)
 	var quotaPausedUntil *time.Time
@@ -124,7 +131,7 @@ func main() {
 	exportSvc := service.NewExportService(businessRepo)
 	metricsSvc := service.NewMetricsService(businessRepo, scheduler)
 	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler, settingsRepo, quota)
-	keywordSvc := service.NewKeywordService(keywordRepo, jobRepo, jobQueue, workerPool.KeywordRunner())
+	keywordSvc := service.NewKeywordService(keywordRepo, areaRepo, jobRepo, jobQueue, workerPool)
 
 	// 10. Initialize Handlers
 	handlers := &api.Handlers{
@@ -135,6 +142,7 @@ func main() {
 		Metrics:  handler.NewMetricsHandler(metricsSvc),
 		System:   handler.NewSystemHandler(systemSvc),
 		Keyword:  handler.NewKeywordHandler(keywordSvc),
+		Area:     handler.NewAreaHandler(keywordSvc),
 	}
 
 	services := &api.Services{

@@ -125,6 +125,28 @@ export interface ScraperKeyword {
   is_active: boolean;
   created_at: string;
   updated_at: string;
+  mode: 'plain' | 'area';
+  term?: string;
+  included_type?: string;
+  area_id?: string;
+  area_name?: string;
+  cells_total: number;
+  cells_done: number;
+  new_places_last_run: number;
+  empty_runs: number;
+  next_eligible_at?: string;
+}
+
+export interface Area {
+  id: string;
+  name: string;
+  low_lat: number;
+  low_lng: number;
+  high_lat: number;
+  high_lng: number;
+  source: 'preset' | 'lookup' | 'manual';
+  keywords: number;
+  created_at: string;
 }
 
 export interface ListKeywordResponse {

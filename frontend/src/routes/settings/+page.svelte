@@ -22,12 +22,39 @@
     google_api_key_masked: string;
     deduplication_mode: string;
     max_concurrent_workers: number;
+    places_daily_budget: number;
+    places_requests_today: number;
+    quota_reset_at?: string;
   }>({
     has_google_api_key: false,
     google_api_key_masked: '',
     deduplication_mode: 'SMART_MERGE_UPSERT',
-    max_concurrent_workers: 5
+    max_concurrent_workers: 5,
+    places_daily_budget: 0,
+    places_requests_today: 0
   });
+
+  let budgetInput = $state('');
+  let isUpdatingBudget = $state(false);
+
+  async function handleBudgetUpdate() {
+    const n = Number(budgetInput);
+    if (!Number.isInteger(n) || n < 0) {
+      toast.error('Enter a whole number (0 = no limit)');
+      return;
+    }
+    try {
+      isUpdatingBudget = true;
+      const res = await api.post<typeof systemSettings>('/api/v1/system/places-budget', { daily_budget: n });
+      if (res) systemSettings = res;
+      toast.success(n === 0 ? 'Daily request limit removed' : `Daily limit set to ${n} requests`);
+      budgetInput = '';
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update budget');
+    } finally {
+      isUpdatingBudget = false;
+    }
+  }
 
   async function loadSettings() {
     try {
@@ -129,6 +156,47 @@
       </div>
       <ArrowRight class="w-4 h-4 text-zinc-500 group-hover:text-white group-hover:translate-x-1 transition" />
     </a>
+  </div>
+
+  <!-- Places request budget -->
+  <div class="bg-zinc-950 border border-zinc-800 rounded-2xl p-6 shadow-sm space-y-4">
+    <div>
+      <h2 class="text-base font-medium text-white">Daily Google Places Requests</h2>
+      <p class="text-xs text-zinc-500 mt-0.5">
+        Every search page and area lookup is one request. When the limit is reached, scraping pauses until Google's daily reset
+        {#if systemSettings.quota_reset_at}({new Date(systemSettings.quota_reset_at).toLocaleString()}){/if}.
+      </p>
+    </div>
+    {#if systemSettings.places_daily_budget > 0}
+      {@const pct = Math.min(100, Math.round((systemSettings.places_requests_today / systemSettings.places_daily_budget) * 100))}
+      <div class="space-y-1.5">
+        <div class="flex justify-between text-xs">
+          <span class="text-zinc-400">Used today</span>
+          <span class="font-mono text-white">{systemSettings.places_requests_today} / {systemSettings.places_daily_budget}</span>
+        </div>
+        <div class="h-2 rounded-full bg-zinc-900 overflow-hidden">
+          <div class="h-full {pct >= 90 ? 'bg-red-400' : pct >= 70 ? 'bg-amber-400' : 'bg-emerald-400'}" style="width: {pct}%"></div>
+        </div>
+      </div>
+    {:else}
+      <div class="text-xs text-zinc-400">Used today: <span class="font-mono text-white">{systemSettings.places_requests_today}</span> · no limit set</div>
+    {/if}
+    <form onsubmit={(e) => { e.preventDefault(); handleBudgetUpdate(); }} class="flex gap-2">
+      <input
+        type="number"
+        min="0"
+        bind:value={budgetInput}
+        placeholder={systemSettings.places_daily_budget ? `Current: ${systemSettings.places_daily_budget}` : 'e.g. 500 (0 = no limit)'}
+        class="flex-1 px-3 py-2 bg-black border border-zinc-800 rounded-xl text-sm text-white placeholder-zinc-600 focus:outline-hidden focus:border-zinc-500"
+      />
+      <button
+        type="submit"
+        disabled={isUpdatingBudget || budgetInput === ''}
+        class="px-4 py-2 rounded-xl bg-white text-black text-xs font-semibold disabled:opacity-50 cursor-pointer"
+      >
+        {isUpdatingBudget ? 'Saving…' : 'Set limit'}
+      </button>
+    </form>
   </div>
 
   <!-- Google Places API Key Card -->

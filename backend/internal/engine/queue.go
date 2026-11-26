@@ -29,6 +29,16 @@ func NextQuotaReset(now time.Time) time.Time {
 	return time.Date(local.Year(), local.Month(), local.Day()+1, 0, 0, 0, 0, loc).UTC()
 }
 
+// QuotaDay is the Google quota day (Pacific date) that t falls in, as a UTC midnight date.
+func QuotaDay(t time.Time) time.Time {
+	loc, err := time.LoadLocation("America/Los_Angeles")
+	if err != nil {
+		loc = time.FixedZone("PT", -8*3600)
+	}
+	l := t.In(loc)
+	return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, time.UTC)
+}
+
 type quotaStateStore interface {
 	SetQuotaPausedUntil(ctx context.Context, until *time.Time) error
 }

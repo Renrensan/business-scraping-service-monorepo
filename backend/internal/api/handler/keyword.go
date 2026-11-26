@@ -56,6 +56,20 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.TrimSpace(req.Term) != "" || len(req.AreaIDs) > 0 {
+		res, err := h.keywordSvc.CreateAreaKeywords(r.Context(), req.Term, req.IncludedType, req.AreaIDs)
+		if err != nil {
+			utils.RespondError(w, http.StatusBadRequest, "Failed to create keywords: "+err.Error())
+			return
+		}
+		utils.RespondSuccess(w, http.StatusCreated, "Keywords created", map[string]interface{}{
+			"count":    res.Created,
+			"existing": res.Existing,
+			"keywords": res.Keywords,
+		})
+		return
+	}
+
 	if len(req.Keywords) > 0 {
 		createdCount, err := h.keywordSvc.CreateBulk(r.Context(), req.Keywords)
 		if err != nil {
@@ -171,4 +185,10 @@ func (h *KeywordHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 
 	utils.RespondSuccess(w, http.StatusOK, "Keyword deleted", nil)
+}
+
+func (h *KeywordHandler) SuggestType(w http.ResponseWriter, r *http.Request) {
+	utils.RespondJSON(w, http.StatusOK, map[string]string{
+		"included_type": h.keywordSvc.SuggestType(r.URL.Query().Get("term")),
+	})
 }

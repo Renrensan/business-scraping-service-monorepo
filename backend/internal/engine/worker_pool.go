@@ -30,6 +30,9 @@ type WorkerPool struct {
 
 	keyMu  sync.RWMutex
 	apiKey string
+	budget int // daily Places request budget, 0 = none
+
+	usage *repository.UsageRepository
 
 	// newPlaces builds the Places client; tests swap it for a fake.
 	newPlaces func(apiKey string) PlacesSearcher
@@ -40,6 +43,8 @@ func NewWorkerPool(
 	jobRepo *repository.JobRepository,
 	businessRepo *repository.BusinessRepository,
 	keywordRepo *repository.KeywordRepository,
+	areaRepo *repository.AreaRepository,
+	usageRepo *repository.UsageRepository,
 	redisClient *redis.Client,
 ) *WorkerPool {
 	rotator := proxy.NewRotator(cfg.Proxies)
@@ -54,13 +59,65 @@ func NewWorkerPool(
 		rotator:      rotator,
 		webClient:    webClient,
 		apiKey:       cfg.GooglePlacesAPIKey,
-		newPlaces: func(key string) PlacesSearcher {
-			return gmaps.NewPlacesAPIClient(key)
-		},
+		usage:        usageRepo,
+	}
+	wp.newPlaces = func(key string) PlacesSearcher {
+		return wp.PlacesClient(key)
 	}
 	wp.enricher = NewLeadEnricher(crawler, businessRepo, jobRepo, cfg.MaxConcurrentEnrichers)
-	wp.runner = NewKeywordRunner(keywordRepo, businessRepo, jobRepo, wp.enricher, wp.APIKey)
+	var areas AreaStore
+	if areaRepo != nil {
+		areas = areaRepo
+	}
+	wp.runner = NewKeywordRunner(keywordRepo, areas, businessRepo, jobRepo, wp.enricher, wp.APIKey)
+	wp.runner.SetPlacesFactory(func(key string) PlacesSearcher { return wp.newPlaces(key) })
 	return wp
+}
+
+// PlacesClient returns a Places client that counts every request against the daily budget.
+func (wp *WorkerPool) PlacesClient(key string) *gmaps.PlacesAPIClient {
+	return gmaps.NewPlacesAPIClient(key).WithGate(wp.budgetGate)
+}
+
+// budgetGate counts a request for today's quota day and refuses it once the budget is used up.
+// A database error lets the request through: the budget is a safety net, not a hard dependency.
+func (wp *WorkerPool) budgetGate(ctx context.Context) error {
+	if wp.usage == nil {
+		return nil
+	}
+	budget := wp.PlacesBudget()
+	ok, err := wp.usage.TryConsume(ctx, QuotaDay(time.Now()), budget)
+	if err != nil {
+		slog.Error("Failed to count Places request", "error", err)
+		return nil
+	}
+	if !ok {
+		return fmt.Errorf("%w: daily request budget of %d reached", gmaps.ErrQuotaExceeded, budget)
+	}
+	return nil
+}
+
+func (wp *WorkerPool) PlacesBudget() int {
+	wp.keyMu.RLock()
+	defer wp.keyMu.RUnlock()
+	return wp.budget
+}
+
+func (wp *WorkerPool) SetPlacesBudget(n int) {
+	if n < 0 {
+		n = 0
+	}
+	wp.keyMu.Lock()
+	wp.budget = n
+	wp.keyMu.Unlock()
+}
+
+// PlacesRequestsToday is how many Places requests were made in the current quota day.
+func (wp *WorkerPool) PlacesRequestsToday(ctx context.Context) (int, error) {
+	if wp.usage == nil {
+		return 0, nil
+	}
+	return wp.usage.Requests(ctx, QuotaDay(time.Now()))
 }
 
 // APIKey is the Places API key in effect (Settings page key, else env key).

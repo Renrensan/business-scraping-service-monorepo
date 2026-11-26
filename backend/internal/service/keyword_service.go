@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"business-scraping-service/backend/internal/engine"
+	"business-scraping-service/backend/internal/engine/gmaps"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
 
@@ -33,23 +35,130 @@ type TriggerScrapeOptions struct {
 
 type KeywordService struct {
 	keywordRepo *repository.KeywordRepository
+	areaRepo    *repository.AreaRepository
 	jobRepo     *repository.JobRepository
 	queue       *engine.JobQueue
+	wp          *engine.WorkerPool
 	runner      *engine.KeywordRunner
 }
 
 func NewKeywordService(
 	keywordRepo *repository.KeywordRepository,
+	areaRepo *repository.AreaRepository,
 	jobRepo *repository.JobRepository,
 	queue *engine.JobQueue,
-	runner *engine.KeywordRunner,
+	wp *engine.WorkerPool,
 ) *KeywordService {
 	return &KeywordService{
 		keywordRepo: keywordRepo,
+		areaRepo:    areaRepo,
 		jobRepo:     jobRepo,
 		queue:       queue,
-		runner:      runner,
+		wp:          wp,
+		runner:      wp.KeywordRunner(),
 	}
+}
+
+// AreaKeywordsResult reports what CreateAreaKeywords did.
+type AreaKeywordsResult struct {
+	Created  int      `json:"created"`
+	Existing int      `json:"existing"`
+	Keywords []string `json:"keywords"`
+}
+
+// CreateAreaKeywords creates one "term · area" keyword per area.
+func (s *KeywordService) CreateAreaKeywords(ctx context.Context, term, includedType string, areaIDs []uuid.UUID) (*AreaKeywordsResult, error) {
+	term = strings.TrimSpace(term)
+	if term == "" {
+		return nil, fmt.Errorf("term is required")
+	}
+	if len(areaIDs) == 0 {
+		return nil, fmt.Errorf("pick at least one area")
+	}
+	if strings.ContainsAny(includedType, " ,;") {
+		return nil, fmt.Errorf("type must be a single Places type such as lodging")
+	}
+	res := &AreaKeywordsResult{}
+	for _, id := range areaIDs {
+		area, err := s.areaRepo.GetByID(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		if area == nil {
+			return nil, fmt.Errorf("area %s not found", id)
+		}
+		kw, created, err := s.keywordRepo.CreateAreaKeyword(ctx, term, strings.TrimSpace(strings.ToLower(includedType)), area)
+		if err != nil {
+			return nil, err
+		}
+		if created {
+			res.Created++
+		} else {
+			res.Existing++
+		}
+		res.Keywords = append(res.Keywords, kw.Keyword)
+	}
+	return res, nil
+}
+
+// SuggestType returns the Places type the form pre-fills for a term.
+func (s *KeywordService) SuggestType(term string) string {
+	return gmaps.SuggestIncludedType(term)
+}
+
+func (s *KeywordService) ListAreas(ctx context.Context) ([]*model.Area, error) {
+	return s.areaRepo.List(ctx)
+}
+
+// AddAreaRequest adds an area either by looking up a place name in Google (one Places request) or
+// from corner coordinates.
+type AddAreaRequest struct {
+	Name    string   `json:"name"`
+	LowLat  *float64 `json:"low_lat,omitempty"`
+	LowLng  *float64 `json:"low_lng,omitempty"`
+	HighLat *float64 `json:"high_lat,omitempty"`
+	HighLng *float64 `json:"high_lng,omitempty"`
+}
+
+func (s *KeywordService) AddArea(ctx context.Context, req AddAreaRequest) (*model.Area, error) {
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
+		return nil, fmt.Errorf("area name is required")
+	}
+	if existing, err := s.areaRepo.GetByName(ctx, name); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return existing, nil
+	}
+
+	area := &model.Area{Name: name}
+	if req.LowLat != nil && req.LowLng != nil && req.HighLat != nil && req.HighLng != nil {
+		area.LowLat, area.LowLng, area.HighLat, area.HighLng = *req.LowLat, *req.LowLng, *req.HighLat, *req.HighLng
+		area.Source = "manual"
+	} else {
+		key := s.runner.APIKey()
+		if key == "" {
+			return nil, engine.ErrNoAPIKey
+		}
+		if until, paused := s.queue.Quota().PausedUntil(time.Now()); paused {
+			return nil, fmt.Errorf("google places api daily quota exceeded; area lookup is paused until %s", until.Format("2006-01-02 15:04 MST"))
+		}
+		rect, _, err := s.wp.PlacesClient(key).LookupArea(ctx, name)
+		if err != nil {
+			return nil, fmt.Errorf("could not find %q on Google Maps: %w", name, err)
+		}
+		area.LowLat, area.LowLng = rect.Low.Latitude, rect.Low.Longitude
+		area.HighLat, area.HighLng = rect.High.Latitude, rect.High.Longitude
+		area.Source = "lookup"
+	}
+	if err := s.areaRepo.Create(ctx, area); err != nil {
+		return nil, err
+	}
+	return area, nil
+}
+
+func (s *KeywordService) DeleteArea(ctx context.Context, id uuid.UUID) error {
+	return s.areaRepo.Delete(ctx, id)
 }
 
 func (s *KeywordService) List(ctx context.Context, filter model.ListKeywordFilter) (*model.ListKeywordResponse, error) {

@@ -11,6 +11,39 @@ import (
 // Keep this list to terms verified as broken without the filter; adding a type also narrows results.
 var lodgingTerms = regexp.MustCompile(`(?i)\b(villas?|homestays?|guest ?houses?|bungalows?)\b`)
 
+// typeSuggestions maps common search words to Places (New) types, to pre-fill the type in the
+// keyword form. Only a suggestion: admins can change or clear it.
+var typeSuggestions = []struct {
+	re  *regexp.Regexp
+	typ string
+}{
+	{regexp.MustCompile(`(?i)\b(villas?|hotels?|resorts?|hostels?|homestays?|guest ?houses?|bungalows?|lodging|accommodation)\b`), "lodging"},
+	{regexp.MustCompile(`(?i)\b(spas?|massage)\b`), "spa"},
+	{regexp.MustCompile(`(?i)\b(restaurants?|warungs?)\b`), "restaurant"},
+	{regexp.MustCompile(`(?i)\b(cafes?|cafés?|coffee)\b`), "cafe"},
+	{regexp.MustCompile(`(?i)\b(bars?|pubs?)\b`), "bar"},
+	{regexp.MustCompile(`(?i)\b(gyms?|fitness)\b`), "gym"},
+	{regexp.MustCompile(`(?i)\b(dentists?|dental)\b`), "dentist"},
+	{regexp.MustCompile(`(?i)\b(vets?|veterinar(y|ian|ians))\b`), "veterinary_care"},
+	{regexp.MustCompile(`(?i)\b(pet ?shops?|pet ?stores?)\b`), "pet_store"},
+	{regexp.MustCompile(`(?i)\b(salons?|barber(shop)?s?)\b`), "beauty_salon"},
+	{regexp.MustCompile(`(?i)\b(laundry|laundries)\b`), "laundry"},
+	{regexp.MustCompile(`(?i)\b(car rentals?|scooter rentals?|motorbike rentals?)\b`), "car_rental"},
+	{regexp.MustCompile(`(?i)\b(real estate|property agents?)\b`), "real_estate_agency"},
+	{regexp.MustCompile(`(?i)\b(bakery|bakeries)\b`), "bakery"},
+	{regexp.MustCompile(`(?i)\b(pharmacy|pharmacies|apotek)\b`), "pharmacy"},
+}
+
+// SuggestIncludedType returns a suggested Places type for a search term, or "".
+func SuggestIncludedType(term string) string {
+	for _, s := range typeSuggestions {
+		if s.re.MatchString(term) {
+			return s.typ
+		}
+	}
+	return ""
+}
+
 // InferIncludedType returns the Places API includedType to send with a query, or "" for none.
 // It must be deterministic: page-token requests have to repeat the first request's parameters.
 func InferIncludedType(query string) string {

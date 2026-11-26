@@ -173,3 +173,20 @@ func (h *SystemHandler) TriggerImmediateScrape(w http.ResponseWriter, r *http.Re
 
 	utils.RespondSuccess(w, http.StatusOK, "Immediate ingestion triggered", job)
 }
+
+type UpdatePlacesBudgetRequest struct {
+	DailyBudget int `json:"daily_budget"`
+}
+
+func (h *SystemHandler) UpdatePlacesBudget(w http.ResponseWriter, r *http.Request) {
+	var req UpdatePlacesBudgetRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	if err := h.systemSvc.SetPlacesBudget(r.Context(), req.DailyBudget); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	utils.RespondSuccess(w, http.StatusOK, "Daily budget updated", h.systemSvc.GetSettings())
+}

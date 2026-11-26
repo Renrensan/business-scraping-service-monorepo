@@ -23,7 +23,7 @@ import (
 
 type PlacesSearcher interface {
 	SearchPlacesText(ctx context.Context, query string, maxResults int) ([]*model.BusinessLead, error)
-	SearchPlacesTextWithCursor(ctx context.Context, query string, startPageToken string, maxPages int, pageSize int) ([]*model.BusinessLead, string, int, bool, error)
+	SearchWithCursor(ctx context.Context, spec gmaps.SearchSpec, startPageToken string, maxPages int, pageSize int) ([]*model.BusinessLead, string, int, bool, error)
 }
 
 type LeadStore interface {
@@ -40,6 +40,19 @@ type KeywordStore interface {
 	UpdateCursor(ctx context.Context, id uuid.UUID, nextToken string, currentPage int, addLeads int, status model.KeywordStatus) error
 	SetStatus(ctx context.Context, id uuid.UUID, status model.KeywordStatus) error
 	ResetCursor(ctx context.Context, id uuid.UUID) error
+	RecordRunOutcome(ctx context.Context, id uuid.UUID, newPlaces int, now time.Time) error
+
+	// Area keyword cells
+	CountCells(ctx context.Context, keywordID uuid.UUID) (int, error)
+	StartCycle(ctx context.Context, keywordID uuid.UUID, area *model.Area) error
+	NextPendingCell(ctx context.Context, keywordID uuid.UUID) (*model.KeywordCell, error)
+	SaveCellProgress(ctx context.Context, c *model.KeywordCell) error
+	SplitCell(ctx context.Context, c *model.KeywordCell) error
+	CycleResults(ctx context.Context, keywordID uuid.UUID) (int, error)
+}
+
+type AreaStore interface {
+	GetByID(ctx context.Context, id uuid.UUID) (*model.Area, error)
 }
 
 type WebsiteEnricher interface {
@@ -216,6 +229,7 @@ type KeywordRunResult struct {
 // KeywordRunner runs one keyword's cursor-based scrape. Used by the keyword "Scrape" button and the scheduler.
 type KeywordRunner struct {
 	keywords  KeywordStore
+	areas     AreaStore
 	leads     LeadStore
 	jobs      JobStore
 	enricher  *LeadEnricher
@@ -223,9 +237,10 @@ type KeywordRunner struct {
 	newPlaces func(apiKey string) PlacesSearcher
 }
 
-func NewKeywordRunner(keywords KeywordStore, leads LeadStore, jobs JobStore, enricher *LeadEnricher, apiKey APIKeySource) *KeywordRunner {
+func NewKeywordRunner(keywords KeywordStore, areas AreaStore, leads LeadStore, jobs JobStore, enricher *LeadEnricher, apiKey APIKeySource) *KeywordRunner {
 	return &KeywordRunner{
 		keywords: keywords,
+		areas:    areas,
 		leads:    leads,
 		jobs:     jobs,
 		enricher: enricher,
@@ -293,7 +308,12 @@ func (r *KeywordRunner) Run(ctx context.Context, kw *model.ScraperKeyword, jobID
 	}
 	places := r.newPlaces(key)
 
-	leads, nextToken, pagesFetched, cycleFinished, err := places.SearchPlacesTextWithCursor(ctx, kw.Keyword, token, opts.MaxPages, opts.PageSize)
+	if kw.Mode == model.KeywordModeArea {
+		return r.runArea(ctx, kw, jobID, opts, places, fail)
+	}
+
+	spec := gmaps.SearchSpec{Query: kw.Keyword, IncludedType: kw.IncludedType}
+	leads, nextToken, pagesFetched, cycleFinished, err := places.SearchWithCursor(ctx, spec, token, opts.MaxPages, opts.PageSize)
 	if err != nil && gmaps.IsInvalidPageTokenError(err) && token != "" {
 		slog.Warn("Page token expired or invalid, restarting keyword from page 1", "keyword", kw.Keyword, "error", err)
 		if rerr := r.keywords.ResetCursor(ctx, kw.ID); rerr != nil {
@@ -302,7 +322,7 @@ func (r *KeywordRunner) Run(ctx context.Context, kw *model.ScraperKeyword, jobID
 		token, page = "", 1
 		result.StartPage, result.CurrentPage = 1, 1
 		restoreStatus = model.KeywordStatusReady
-		leads, nextToken, pagesFetched, cycleFinished, err = places.SearchPlacesTextWithCursor(ctx, kw.Keyword, "", opts.MaxPages, opts.PageSize)
+		leads, nextToken, pagesFetched, cycleFinished, err = places.SearchWithCursor(ctx, spec, "", opts.MaxPages, opts.PageSize)
 	}
 
 	if err != nil {
@@ -337,6 +357,8 @@ func (r *KeywordRunner) Run(ctx context.Context, kw *model.ScraperKeyword, jobID
 		return fail(cerr, fmt.Sprintf("Leads saved but the keyword cursor could not be updated: %v", cerr))
 	}
 
+	r.recordOutcome(ctx, kw.ID, ingest.New)
+
 	msg := ""
 	switch {
 	case status == model.KeywordStatusNoResults:
@@ -352,6 +374,182 @@ func (r *KeywordRunner) Run(ctx context.Context, kw *model.ScraperKeyword, jobID
 	}
 
 	return result, nil
+}
+
+func (r *KeywordRunner) recordOutcome(ctx context.Context, id uuid.UUID, newPlaces int) {
+	if err := r.keywords.RecordRunOutcome(ctx, id, newPlaces, time.Now().UTC()); err != nil {
+		slog.Error("Failed to record keyword run outcome", "keyword_id", id, "error", err)
+	}
+}
+
+// Area keywords: each cycle starts with one cell covering the area. A cell is searched with the
+// area rectangle as a hard limit; when it returns Google's maximum (60) it is split into four
+// quarters, down to maxCellDepth, so busy areas are covered beyond 60 places.
+const (
+	maxCellDepth    = 3
+	maxPagesPerCell = 3
+	placesPerCell   = 60
+)
+
+func (r *KeywordRunner) runArea(ctx context.Context, kw *model.ScraperKeyword, jobID uuid.UUID, opts KeywordRunOptions, places PlacesSearcher,
+	fail func(error, string) (*KeywordRunResult, error)) (*KeywordRunResult, error) {
+
+	result := &KeywordRunResult{StartPage: kw.CurrentPage}
+	if kw.AreaID == nil || r.areas == nil {
+		return fail(errors.New("area keyword has no area"), "This keyword's area was removed")
+	}
+	area, err := r.areas.GetByID(ctx, *kw.AreaID)
+	if err != nil || area == nil {
+		return fail(fmt.Errorf("area not found: %v", err), "This keyword's area was removed")
+	}
+
+	cells, err := r.keywords.CountCells(ctx, kw.ID)
+	if err != nil {
+		return fail(err, fmt.Sprintf("Failed to load area progress: %v", err))
+	}
+	newCycle := cells == 0 || kw.Status == model.KeywordStatusCompleted || kw.Status == model.KeywordStatusNoResults
+	if newCycle {
+		if err := r.keywords.StartCycle(ctx, kw.ID, area); err != nil {
+			return fail(err, fmt.Sprintf("Failed to start area cycle: %v", err))
+		}
+		result.StartPage = 1
+	}
+
+	var (
+		pagesLeft = opts.MaxPages
+		pagesDone int
+		totalSeen int
+		saved     int
+		newLeads  int
+		failed    int
+		lastErr   error
+		upserted  []*model.BusinessLead
+		stopErr   error
+	)
+
+	for pagesLeft > 0 {
+		cell, err := r.keywords.NextPendingCell(ctx, kw.ID)
+		if err != nil {
+			stopErr = err
+			break
+		}
+		if cell == nil {
+			break // every cell done: cycle complete
+		}
+
+		spec := gmaps.SearchSpec{
+			Query:        kw.Term,
+			IncludedType: kw.IncludedType,
+			Rect: &gmaps.Rect{
+				Low:  gmaps.LatLng{Latitude: cell.LowLat, Longitude: cell.LowLng},
+				High: gmaps.LatLng{Latitude: cell.HighLat, Longitude: cell.HighLng},
+			},
+		}
+		want := maxPagesPerCell - cell.PagesFetched
+		if want > pagesLeft {
+			want = pagesLeft
+		}
+		if want <= 0 {
+			want = 1
+		}
+
+		leads, next, fetched, finished, err := places.SearchWithCursor(ctx, spec, cell.NextPageToken, want, opts.PageSize)
+		if err != nil && gmaps.IsInvalidPageTokenError(err) && cell.NextPageToken != "" {
+			slog.Warn("Cell page token expired, restarting cell", "keyword", kw.Keyword, "cell", cell.ID)
+			cell.NextPageToken, cell.PagesFetched, cell.Results = "", 0, 0
+			leads, next, fetched, finished, err = places.SearchWithCursor(ctx, spec, "", want, opts.PageSize)
+		}
+		if err != nil {
+			if pagesDone == 0 {
+				if gmaps.IsQuotaError(err) {
+					return fail(err, "Google Places API daily quota exceeded; try again after the quota resets. "+err.Error())
+				}
+				return fail(err, fmt.Sprintf("Places error: %v", err))
+			}
+			stopErr = err // keep what earlier cells found
+			break
+		}
+
+		ingest := IngestLeads(ctx, r.leads, jobID, leads, kw.Keyword)
+		if len(leads) > 0 && ingest.Saved == 0 {
+			return fail(ingest.LastErr, fmt.Sprintf("Failed to save any of %d leads: %v", len(leads), ingest.LastErr))
+		}
+		saved += ingest.Saved
+		newLeads += ingest.New
+		failed += ingest.Failed
+		if ingest.LastErr != nil {
+			lastErr = ingest.LastErr
+		}
+		upserted = append(upserted, ingest.Upserted...)
+		totalSeen += len(leads)
+
+		cell.PagesFetched += fetched
+		cell.Results += len(leads)
+		pagesLeft -= fetched
+		pagesDone += fetched
+
+		if finished || next == "" {
+			if cell.Results >= placesPerCell && cell.Depth < maxCellDepth {
+				err = r.keywords.SplitCell(ctx, cell)
+			} else {
+				cell.Status, cell.NextPageToken = "done", ""
+				err = r.keywords.SaveCellProgress(ctx, cell)
+			}
+		} else {
+			cell.NextPageToken = next
+			err = r.keywords.SaveCellProgress(ctx, cell)
+		}
+		if err != nil {
+			return fail(err, fmt.Sprintf("Leads saved but area progress could not be updated: %v", err))
+		}
+		if fetched == 0 {
+			break // defensive: no progress
+		}
+	}
+
+	pending, err := r.keywords.NextPendingCell(ctx, kw.ID)
+	if err != nil {
+		return fail(err, fmt.Sprintf("Failed to load area progress: %v", err))
+	}
+	status := model.KeywordStatusPaginating
+	if pending == nil {
+		status = model.KeywordStatusCompleted
+		if n, err := r.keywords.CycleResults(ctx, kw.ID); err == nil && n == 0 {
+			status = model.KeywordStatusNoResults
+		}
+	}
+
+	page := kw.CurrentPage
+	if newCycle || page < 1 {
+		page = 1
+	}
+	result.Leads = totalSeen
+	result.NewLeads = newLeads
+	result.FailedLeads = failed
+	result.PagesFetched = pagesDone
+	result.CurrentPage = page + pagesDone
+	result.Status = status
+
+	if err := r.keywords.UpdateCursor(ctx, kw.ID, "", result.CurrentPage, saved, status); err != nil {
+		return fail(err, fmt.Sprintf("Leads saved but the keyword could not be updated: %v", err))
+	}
+	r.recordOutcome(ctx, kw.ID, newLeads)
+
+	msg := ""
+	switch {
+	case stopErr != nil:
+		msg = "Stopped early, kept the results found so far: " + stopErr.Error()
+	case status == model.KeywordStatusNoResults:
+		msg = "Google returned no places for this term in this area; try a different term or type"
+	case failed > 0:
+		msg = fmt.Sprintf("%d of %d leads could not be saved: %v", failed, totalSeen, lastErr)
+	}
+	r.finishJob(ctx, jobID, model.JobStatusCompleted, saved, failed, msg)
+
+	if opts.Enrich {
+		r.enricher.EnrichInBackground(jobID, upserted)
+	}
+	return result, stopErr
 }
 
 func (r *KeywordRunner) finishJob(ctx context.Context, jobID uuid.UUID, status model.JobStatus, scraped, errCount int, msg string) {

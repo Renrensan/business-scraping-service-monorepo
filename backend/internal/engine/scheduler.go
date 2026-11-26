@@ -211,7 +211,10 @@ func (s *Scheduler) queueKeywordRuns(ctx context.Context, queries []string, maxP
 			targets = kws
 		} else {
 			// Existing behaviour: with no active keyword, run all of them.
-			allKws, _, _ := s.keywordRepo.List(ctx, model.ListKeywordFilter{Page: 1, PageSize: 100})
+			allKws, err := s.keywordRepo.ListAllDue(ctx, 100)
+			if err != nil {
+				slog.Error("Failed to list keywords", "error", err)
+			}
 			targets = allKws
 		}
 	}

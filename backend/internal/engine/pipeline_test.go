@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -18,6 +19,7 @@ import (
 
 type fakePlaces struct {
 	calls   []string // page tokens requested
+	specs   []gmaps.SearchSpec
 	respond func(token string) ([]*model.BusinessLead, string, int, bool, error)
 }
 
@@ -25,8 +27,9 @@ func (f *fakePlaces) SearchPlacesText(ctx context.Context, q string, max int) ([
 	return nil, errors.New("not used")
 }
 
-func (f *fakePlaces) SearchPlacesTextWithCursor(ctx context.Context, q, token string, maxPages, pageSize int) ([]*model.BusinessLead, string, int, bool, error) {
+func (f *fakePlaces) SearchWithCursor(ctx context.Context, spec gmaps.SearchSpec, token string, maxPages, pageSize int) ([]*model.BusinessLead, string, int, bool, error) {
 	f.calls = append(f.calls, token)
+	f.specs = append(f.specs, spec)
 	return f.respond(token)
 }
 
@@ -96,7 +99,70 @@ type fakeKeywords struct {
 	status    model.KeywordStatus
 	resets    int
 	cursorErr error
+	outcomes  []int
+	cells     []*model.KeywordCell
 }
+
+func (f *fakeKeywords) RecordRunOutcome(ctx context.Context, id uuid.UUID, n int, now time.Time) error {
+	f.outcomes = append(f.outcomes, n)
+	return nil
+}
+func (f *fakeKeywords) CountCells(ctx context.Context, id uuid.UUID) (int, error) { return len(f.cells), nil }
+func (f *fakeKeywords) StartCycle(ctx context.Context, id uuid.UUID, a *model.Area) error {
+	f.cells = []*model.KeywordCell{{ID: uuid.New(), KeywordID: id, Status: "pending", LowLat: a.LowLat, LowLng: a.LowLng, HighLat: a.HighLat, HighLng: a.HighLng}}
+	return nil
+}
+func (f *fakeKeywords) NextPendingCell(ctx context.Context, id uuid.UUID) (*model.KeywordCell, error) {
+	var best *model.KeywordCell
+	for _, c := range f.cells {
+		if c.Status != "pending" {
+			continue
+		}
+		if best == nil || (c.PagesFetched > 0 && best.PagesFetched == 0) || (c.PagesFetched > 0) == (best.PagesFetched > 0) && c.Depth < best.Depth {
+			best = c
+		}
+	}
+	if best == nil {
+		return nil, nil
+	}
+	cp := *best
+	return &cp, nil
+}
+func (f *fakeKeywords) find(id uuid.UUID) *model.KeywordCell {
+	for _, c := range f.cells {
+		if c.ID == id {
+			return c
+		}
+	}
+	return nil
+}
+func (f *fakeKeywords) SaveCellProgress(ctx context.Context, c *model.KeywordCell) error {
+	*f.find(c.ID) = *c
+	return nil
+}
+func (f *fakeKeywords) SplitCell(ctx context.Context, c *model.KeywordCell) error {
+	stored := f.find(c.ID)
+	*stored = *c
+	stored.Status = "split"
+	midLat, midLng := (c.LowLat+c.HighLat)/2, (c.LowLng+c.HighLng)/2
+	for _, q := range [4][4]float64{{c.LowLat, c.LowLng, midLat, midLng}, {c.LowLat, midLng, midLat, c.HighLng}, {midLat, c.LowLng, c.HighLat, midLng}, {midLat, midLng, c.HighLat, c.HighLng}} {
+		f.cells = append(f.cells, &model.KeywordCell{ID: uuid.New(), KeywordID: c.KeywordID, Depth: c.Depth + 1, Status: "pending", LowLat: q[0], LowLng: q[1], HighLat: q[2], HighLng: q[3]})
+	}
+	return nil
+}
+func (f *fakeKeywords) CycleResults(ctx context.Context, id uuid.UUID) (int, error) {
+	n := 0
+	for _, c := range f.cells {
+		if c.Status != "split" {
+			n += c.Results
+		}
+	}
+	return n, nil
+}
+
+type fakeAreas struct{ area *model.Area }
+
+func (f fakeAreas) GetByID(ctx context.Context, id uuid.UUID) (*model.Area, error) { return f.area, nil }
 
 func (f *fakeKeywords) UpdateCursor(ctx context.Context, id uuid.UUID, tok string, page, add int, s model.KeywordStatus) error {
 	if f.cursorErr != nil {
@@ -124,7 +190,7 @@ func leadsN(n int) []*model.BusinessLead {
 }
 
 func newTestRunner(places *fakePlaces, kws *fakeKeywords, leads *fakeLeads, jobs *fakeJobs) *KeywordRunner {
-	r := NewKeywordRunner(kws, leads, jobs, nil, func() string { return "key" })
+	r := NewKeywordRunner(kws, fakeAreas{testArea}, leads, jobs, nil, func() string { return "key" })
 	r.SetPlacesFactory(func(string) PlacesSearcher { return places })
 	return r
 }
@@ -254,7 +320,7 @@ func TestKeywordRunner_CursorWriteFailureFailsJob(t *testing.T) {
 
 func TestKeywordRunner_NoAPIKey(t *testing.T) {
 	kws, jobs := &fakeKeywords{}, &fakeJobs{}
-	r := NewKeywordRunner(kws, &fakeLeads{}, jobs, nil, func() string { return "" })
+	r := NewKeywordRunner(kws, nil, &fakeLeads{}, jobs, nil, func() string { return "" })
 	_, err := r.Run(context.Background(), &model.ScraperKeyword{ID: uuid.New(), Keyword: "x"}, uuid.New(), KeywordRunOptions{})
 	if !errors.Is(err, ErrNoAPIKey) || jobs.last().status != model.JobStatusFailed || kws.status != model.KeywordStatusReady {
 		t.Errorf("err=%v job=%+v kwStatus=%s", err, jobs.last(), kws.status)
@@ -313,5 +379,181 @@ func TestLeadEnricher_SkipsLeadsWithoutWebsiteOrID(t *testing.T) {
 	}
 	if len(leads.enrichSet) != 2 || leads.enrichSet[in[1].ID] != model.EnrichmentFailed {
 		t.Errorf("enrichment writes = %v", leads.enrichSet)
+	}
+}
+
+// ---- area keywords ----
+
+var testArea = &model.Area{ID: uuid.New(), Name: "Canggu", LowLat: -8.67, LowLng: 115.11, HighLat: -8.62, HighLng: 115.16}
+
+// densePlaces simulates Google: a rectangle larger than maxSpan returns the 60-place maximum
+// (3 pages of 20), a smaller one returns 7 places on a single page.
+func densePlaces(maxSpan float64) *fakePlaces {
+	f := &fakePlaces{}
+	f.respond = func(tok string) ([]*model.BusinessLead, string, int, bool, error) {
+		spec := f.specs[len(f.specs)-1]
+		span := spec.Rect.High.Latitude - spec.Rect.Low.Latitude
+		if span <= maxSpan {
+			return leadsN(7), "", 1, true, nil
+		}
+		// dense: one page per call, three pages total
+		page := 0
+		if tok != "" {
+			fmt.Sscanf(tok, "p%d", &page)
+		}
+		if page == 2 {
+			return leadsN(20), "", 1, true, nil
+		}
+		return leadsN(20), fmt.Sprintf("p%d", page+1), 1, false, nil
+	}
+	return f
+}
+
+func areaKeyword() *model.ScraperKeyword {
+	id := testArea.ID
+	return &model.ScraperKeyword{ID: uuid.New(), Keyword: "villa · Canggu", Mode: model.KeywordModeArea, Term: "villa", IncludedType: "lodging", AreaID: &id, Status: model.KeywordStatusReady, CurrentPage: 1}
+}
+
+func TestAreaRun_SearchesInsideTheArea(t *testing.T) {
+	places := densePlaces(1) // whole area is "small": 7 places, one page
+	kws, leads := &fakeKeywords{}, &fakeLeads{}
+	res, err := newTestRunner(places, kws, leads, &fakeJobs{}).Run(context.Background(), areaKeyword(), uuid.New(), KeywordRunOptions{MaxPages: 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec := places.specs[0]
+	if spec.Query != "villa" || spec.IncludedType != "lodging" || spec.Rect == nil || spec.Rect.Low.Latitude != testArea.LowLat || spec.Rect.High.Longitude != testArea.HighLng {
+		t.Errorf("unexpected spec %+v rect %+v", spec, spec.Rect)
+	}
+	if res.Status != model.KeywordStatusCompleted || len(leads.saved) != 7 || leads.saved[0].ScrapeKeywords[0] != "villa · Canggu" {
+		t.Errorf("status=%s saved=%d", res.Status, len(leads.saved))
+	}
+	if len(kws.outcomes) != 1 || kws.outcomes[0] != 7 {
+		t.Errorf("outcome not recorded: %v", kws.outcomes)
+	}
+}
+
+func TestAreaRun_SplitsBusyAreaAcrossRuns(t *testing.T) {
+	// The area is 0.05 deg tall; cells up to 0.02 deg are "small". Root (0.05) is dense ->
+	// split into 0.025 cells, also dense -> split into 0.0125 cells, which return 7 each.
+	places := densePlaces(0.02)
+	kws, leads, jobs := &fakeKeywords{}, &fakeLeads{}, &fakeJobs{}
+	r := newTestRunner(places, kws, leads, jobs)
+	kw := areaKeyword()
+
+	runs := 0
+	for {
+		runs++
+		res, err := r.Run(context.Background(), kw, uuid.New(), KeywordRunOptions{MaxPages: 5})
+		if err != nil {
+			t.Fatal(err)
+		}
+		kw.Status = res.Status
+		kw.CurrentPage = res.CurrentPage
+		if res.Status != model.KeywordStatusPaginating || runs > 50 {
+			break
+		}
+	}
+	if kw.Status != model.KeywordStatusCompleted {
+		t.Fatalf("ended with %s after %d runs", kw.Status, runs)
+	}
+
+	var split, done, maxDepth int
+	for _, c := range kws.cells {
+		switch c.Status {
+		case "split":
+			split++
+		case "done":
+			done++
+		}
+		if c.Depth > maxDepth {
+			maxDepth = c.Depth
+		}
+	}
+	// 1 root + 4 depth-1 cells split; 16 depth-2 leaves done.
+	if split != 5 || done != 16 || maxDepth != 2 {
+		t.Errorf("split=%d done=%d maxDepth=%d", split, done, maxDepth)
+	}
+	// 60 (root) + 4*60 (depth 1) + 16*7 = 412 results, all saved
+	if len(leads.saved) != 60+240+112 {
+		t.Errorf("saved %d leads", len(leads.saved))
+	}
+	// Each run respected its page budget.
+	if len(places.calls) > runs*5 {
+		t.Errorf("%d calls over %d runs exceeds 5 pages per run", len(places.calls), runs)
+	}
+}
+
+func TestAreaRun_DepthLimitStopsSplitting(t *testing.T) {
+	places := densePlaces(0) // every cell is dense
+	kws := &fakeKeywords{}
+	r := newTestRunner(places, kws, &fakeLeads{}, &fakeJobs{})
+	kw := areaKeyword()
+	for i := 0; i < 500; i++ {
+		res, err := r.Run(context.Background(), kw, uuid.New(), KeywordRunOptions{MaxPages: 30})
+		if err != nil {
+			t.Fatal(err)
+		}
+		kw.Status = res.Status
+		if res.Status != model.KeywordStatusPaginating {
+			break
+		}
+	}
+	if kw.Status != model.KeywordStatusCompleted {
+		t.Fatalf("status %s", kw.Status)
+	}
+	for _, c := range kws.cells {
+		if c.Depth > maxCellDepth || (c.Depth == maxCellDepth && c.Status != "done") {
+			t.Fatalf("cell at depth %d has status %s", c.Depth, c.Status)
+		}
+	}
+}
+
+func TestAreaRun_EmptyAreaIsNoResults(t *testing.T) {
+	places := &fakePlaces{respond: func(string) ([]*model.BusinessLead, string, int, bool, error) {
+		return nil, "", 1, true, nil
+	}}
+	kws := &fakeKeywords{}
+	res, err := newTestRunner(places, kws, &fakeLeads{}, &fakeJobs{}).Run(context.Background(), areaKeyword(), uuid.New(), KeywordRunOptions{MaxPages: 3})
+	if err != nil || res.Status != model.KeywordStatusNoResults {
+		t.Errorf("status=%s err=%v", res.Status, err)
+	}
+}
+
+func TestAreaRun_QuotaMidRunKeepsEarlierCells(t *testing.T) {
+	calls := 0
+	places := &fakePlaces{}
+	places.respond = func(tok string) ([]*model.BusinessLead, string, int, bool, error) {
+		calls++
+		if calls == 1 {
+			return leadsN(20), "p1", 1, false, nil
+		}
+		return nil, "", 0, false, fmt.Errorf("%w: budget", gmaps.ErrQuotaExceeded)
+	}
+	kws, jobs := &fakeKeywords{}, &fakeJobs{}
+	res, err := newTestRunner(places, kws, &fakeLeads{}, jobs).Run(context.Background(), areaKeyword(), uuid.New(), KeywordRunOptions{MaxPages: 3})
+	if !gmaps.IsQuotaError(err) {
+		t.Fatalf("expected quota error to be returned, got %v", err)
+	}
+	if res.Status != model.KeywordStatusPaginating || jobs.last().status != model.JobStatusCompleted || jobs.last().scraped != 20 {
+		t.Errorf("status=%s job=%+v", res.Status, jobs.last())
+	}
+	if kws.cells[0].NextPageToken != "p1" || kws.cells[0].PagesFetched != 1 {
+		t.Errorf("cell progress not kept: %+v", kws.cells[0])
+	}
+}
+
+func TestAreaRun_NextCycleStartsFresh(t *testing.T) {
+	places := densePlaces(1)
+	kws := &fakeKeywords{}
+	r := newTestRunner(places, kws, &fakeLeads{}, &fakeJobs{})
+	kw := areaKeyword()
+	res, _ := r.Run(context.Background(), kw, uuid.New(), KeywordRunOptions{MaxPages: 3})
+	kw.Status = res.Status
+	if _, err := r.Run(context.Background(), kw, uuid.New(), KeywordRunOptions{MaxPages: 3}); err != nil {
+		t.Fatal(err)
+	}
+	if len(kws.cells) != 1 || kws.cells[0].Status != "done" || len(places.calls) != 2 {
+		t.Errorf("cells=%d calls=%d", len(kws.cells), len(places.calls))
 	}
 }

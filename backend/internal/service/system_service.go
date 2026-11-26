@@ -6,16 +6,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
 	"business-scraping-service/backend/internal/config"
 	"business-scraping-service/backend/internal/engine"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 // GoogleAPIKeySettingKey is where the key set on the Settings page is saved, so it survives restarts.
 const GoogleAPIKeySettingKey = "google_places_api_key"
+
+// PlacesBudgetSettingKey stores the daily Places request budget (0 = no budget).
+const PlacesBudgetSettingKey = "places_daily_budget"
 
 type SystemService struct {
 	cfg         *config.Config
@@ -44,6 +48,9 @@ type SystemSettingsResponse struct {
 	GoogleAPIKeyMasked   string               `json:"google_api_key_masked"`
 	DeduplicationMode    string               `json:"deduplication_mode"`
 	MaxConcurrentWorkers int                  `json:"max_concurrent_workers"`
+	PlacesDailyBudget    int                  `json:"places_daily_budget"`
+	PlacesRequestsToday  int                  `json:"places_requests_today"`
+	QuotaResetAt         time.Time            `json:"quota_reset_at"`
 	Schedule             *engine.ScheduleInfo `json:"schedule,omitempty"`
 }
 
@@ -70,6 +77,9 @@ func (s *SystemService) GetSettings() *SystemSettingsResponse {
 		GoogleAPIKeyMasked:   masked,
 		DeduplicationMode:    "SMART_MERGE_UPSERT",
 		MaxConcurrentWorkers: s.cfg.MaxConcurrentScrapers,
+		PlacesDailyBudget:    s.workerPool.PlacesBudget(),
+		PlacesRequestsToday:  s.placesRequestsToday(),
+		QuotaResetAt:         engine.NextQuotaReset(time.Now()),
 		Schedule:             sched,
 	}
 }
@@ -178,4 +188,32 @@ func (s *SystemService) GetHealth(ctx context.Context) *HealthResponse {
 		Redis:       redisStatus,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 	}
+}
+
+func (s *SystemService) placesRequestsToday() int {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	n, err := s.workerPool.PlacesRequestsToday(ctx)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// SetPlacesBudget saves the daily Places request budget (0 = no budget). Raising it lifts a pause
+// caused by the old budget.
+func (s *SystemService) SetPlacesBudget(ctx context.Context, n int) error {
+	if n < 0 {
+		return fmt.Errorf("budget cannot be negative")
+	}
+	if s.settings != nil {
+		if err := s.settings.Set(ctx, PlacesBudgetSettingKey, n); err != nil {
+			return fmt.Errorf("failed to save budget: %w", err)
+		}
+	}
+	s.workerPool.SetPlacesBudget(n)
+	if s.quota != nil {
+		s.quota.Clear(ctx)
+	}
+	return nil
 }

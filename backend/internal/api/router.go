@@ -20,6 +20,7 @@ type Handlers struct {
 	Metrics  *handler.MetricsHandler
 	System   *handler.SystemHandler
 	Keyword  *handler.KeywordHandler
+	Area     *handler.AreaHandler
 }
 
 type Services struct {
@@ -83,6 +84,12 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 			protected.Post("/keywords/{id}/trigger", h.Keyword.Trigger)
 			protected.Post("/keywords/{id}/reset", h.Keyword.Reset)
 			protected.Delete("/keywords/{id}", h.Keyword.Delete)
+			protected.Get("/keywords/type-suggestion", h.Keyword.SuggestType)
+
+			// Areas for term+type+area keywords
+			protected.Get("/areas", h.Area.List)
+			protected.Post("/areas", h.Area.Create)
+			protected.Delete("/areas/{id}", h.Area.Delete)
 
 			// Businesses / Leads Database
 			protected.Get("/businesses", h.Business.List)
@@ -100,6 +107,7 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 			// System Settings & Scheduler
 			protected.Get("/system/settings", h.System.GetSettings)
 			protected.Post("/system/api-key", h.System.UpdateAPIKey)
+			protected.Post("/system/places-budget", h.System.UpdatePlacesBudget)
 			protected.Get("/system/schedule", h.System.GetSchedule)
 			protected.Post("/system/schedule", h.System.UpdateSchedule)
 			protected.Post("/system/trigger-scrape", h.System.TriggerImmediateScrape)

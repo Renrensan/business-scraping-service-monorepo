@@ -110,6 +110,7 @@ func IngestLeads(ctx context.Context, store LeadStore, jobID uuid.UUID, leads []
 // LeadEnricher crawls lead websites for emails, phones and social links. One instance is shared by
 // all scrape paths, so the concurrency limit applies across all of them.
 type LeadEnricher struct {
+	scorer  LeadScorer
 	crawler WebsiteEnricher
 	leads   LeadStore
 	jobs    JobStore
@@ -192,6 +193,16 @@ func (e *LeadEnricher) Enrich(ctx context.Context, jobID uuid.UUID, leads []*mod
 	}
 
 	wg.Wait()
+
+	if e.scorer != nil {
+		ids := make([]uuid.UUID, 0, len(leads))
+		for _, l := range leads {
+			if l.ID != uuid.Nil {
+				ids = append(ids, l.ID)
+			}
+		}
+		e.scorer.RescoreLeads(ctx, ids) // new contacts change channel points
+	}
 	return enriched
 }
 
@@ -228,6 +239,7 @@ type KeywordRunResult struct {
 
 // KeywordRunner runs one keyword's cursor-based scrape. Used by the keyword "Scrape" button and the scheduler.
 type KeywordRunner struct {
+	scorer    LeadScorer
 	keywords  KeywordStore
 	areas     AreaStore
 	leads     LeadStore
@@ -335,6 +347,7 @@ func (r *KeywordRunner) Run(ctx context.Context, kw *model.ScraperKeyword, jobID
 	}
 
 	ingest := IngestLeads(ctx, r.leads, jobID, leads, kw.Keyword)
+	r.rescore(ctx, ingest.Upserted)
 	result.Leads = len(leads)
 	result.NewLeads = ingest.New
 	result.FailedLeads = ingest.Failed
@@ -374,6 +387,18 @@ func (r *KeywordRunner) Run(ctx context.Context, kw *model.ScraperKeyword, jobID
 	}
 
 	return result, nil
+}
+
+// rescore refreshes the scores of leads that were just saved.
+func (r *KeywordRunner) rescore(ctx context.Context, leads []*model.BusinessLead) {
+	if r.scorer == nil || len(leads) == 0 {
+		return
+	}
+	ids := make([]uuid.UUID, 0, len(leads))
+	for _, l := range leads {
+		ids = append(ids, l.ID)
+	}
+	r.scorer.RescoreLeads(ctx, ids)
 }
 
 func (r *KeywordRunner) recordOutcome(ctx context.Context, id uuid.UUID, newPlaces int) {
@@ -471,6 +496,7 @@ func (r *KeywordRunner) runArea(ctx context.Context, kw *model.ScraperKeyword, j
 		}
 
 		ingest := IngestLeads(ctx, r.leads, jobID, leads, kw.Keyword)
+		r.rescore(ctx, ingest.Upserted)
 		if len(leads) > 0 && ingest.Saved == 0 {
 			return fail(ingest.LastErr, fmt.Sprintf("Failed to save any of %d leads: %v", len(leads), ingest.LastErr))
 		}

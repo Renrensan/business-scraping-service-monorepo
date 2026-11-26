@@ -124,6 +124,12 @@ func main() {
 		slog.Info("WhatsApp alerts enabled", "instance", cfg.EvolutionInstance)
 	}
 	jobQueue.SetAlerter(alerter)
+
+	// Lead scoring (e.g. GuestChatPro): refreshed after scraping/enrichment, and fully at startup.
+	scoringRepo := repository.NewScoringRepository(dbPool)
+	scorer := engine.NewScorer(scoringRepo, areaRepo)
+	workerPool.SetScorer(scorer)
+	scorer.RescoreAllInBackground()
 	jobQueue.Start()
 
 	scheduler := engine.NewScheduler(workerPool, jobQueue, schedulerStateRepo, settingsRepo, keywordRepo, cfg)
@@ -132,11 +138,12 @@ func main() {
 	// 9. Initialize Services
 	authSvc := service.NewAuthService(adminRepo, sessionStore)
 	jobSvc := service.NewJobService(jobRepo, jobQueue)
-	businessSvc := service.NewBusinessService(businessRepo)
+	businessSvc := service.NewBusinessService(businessRepo, scoringRepo)
 	exportSvc := service.NewExportService(businessRepo)
 	metricsSvc := service.NewMetricsService(businessRepo, scheduler)
 	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler, settingsRepo, quota, jobQueue, jobRepo, keywordRepo)
 	keywordSvc := service.NewKeywordService(keywordRepo, areaRepo, jobRepo, jobQueue, workerPool)
+	keywordSvc.OnAreasChanged = scorer.RescoreAllInBackground
 
 	// 10. Initialize Handlers
 	handlers := &api.Handlers{
@@ -148,6 +155,7 @@ func main() {
 		System:   handler.NewSystemHandler(systemSvc),
 		Keyword:  handler.NewKeywordHandler(keywordSvc),
 		Area:     handler.NewAreaHandler(keywordSvc),
+		Scoring:  handler.NewScoringHandler(service.NewScoringService(scoringRepo, scorer)),
 	}
 
 	services := &api.Services{

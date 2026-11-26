@@ -76,6 +76,16 @@ type BusinessLead struct {
 	LeadStatus       *LeadStatus            `json:"lead_status"`
 	CreatedAt        time.Time              `json:"created_at"`
 	UpdatedAt        time.Time              `json:"updated_at"`
+
+	// Grouping for scoring: set by hand (nil = use the suggestion from the name).
+	GroupType          *string `json:"group_type"`
+	GroupName          *string `json:"group_name"`
+	SuggestedGroupType string  `json:"suggested_group_type"`
+	SuggestedGroupName string  `json:"suggested_group_name"`
+
+	// Score for the profile selected in a list request; all profiles' scores on the detail view.
+	Score  *LeadScore  `json:"score,omitempty"`
+	Scores []LeadScore `json:"scores,omitempty"`
 }
 
 type BusinessFilter struct {
@@ -94,10 +104,16 @@ type BusinessFilter struct {
 	Statuses   []LeadStatus
 	OnlyNew    *bool
 	MaxReviews *int
-	SortBy     string
-	SortOrder  string
-	Page       int
-	PageSize   int
+	// Scoring: rank by a profile, optionally only some tiers / one scoring area.
+	ScoreProfileID   *uuid.UUID
+	ScoreProfileName string // used when ScoreProfileID is not set
+	Tiers            []string
+	ScoreArea        string
+
+	SortBy    string
+	SortOrder string
+	Page      int
+	PageSize  int
 }
 
 type BusinessListResponse struct {

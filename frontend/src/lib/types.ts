@@ -46,6 +46,12 @@ export interface BusinessLead {
   contacted?: boolean;
   contacted_at?: string;
   lead_status?: LeadStatus | null;
+  group_type?: GroupType | null;
+  group_name?: string | null;
+  suggested_group_type?: GroupType;
+  suggested_group_name?: string;
+  score?: LeadScore;
+  scores?: LeadScore[];
   last_scraped_at: string;
   last_enriched_at?: string;
   created_at: string;
@@ -169,3 +175,69 @@ export interface KeywordScrapeResult {
   total_leads_scraped?: number;
   message?: string;
 }
+
+// ---- Lead scoring (e.g. GuestChatPro) ----
+export type Tier = 'hot' | 'good' | 'low' | 'skip';
+export type GroupType = 'independent' | 'group' | 'small_group' | 'restaurant_stay' | 'chain' | 'skip';
+
+export interface ScoreBreakdown {
+  review_points: number;
+  rating_points: number;
+  channel_points: number;
+  group_bonus: number;
+  channels: string[] | null;
+  ignored: { channel: string; value: string; reason: string }[] | null;
+  no_rating?: boolean;
+  group_type: GroupType;
+  cutoff: { hot: number; good: number };
+  tier_reason?: string;
+}
+
+export interface LeadScore {
+  profile_id: string;
+  profile_name?: string;
+  score: number;
+  raw_score: number;
+  tier: Tier;
+  computed_tier: Tier;
+  tier_override: Tier | null;
+  note: string;
+  area_name: string;
+  breakdown: ScoreBreakdown;
+  computed_at: string;
+}
+
+export interface ScoringConfig {
+  reviews_weight: number;
+  rating_baseline: number;
+  rating_weight: number;
+  channel_points: number;
+  channel_cap: number;
+  channels: string[];
+  group_bonuses: Record<string, number>;
+  chain_forces_low: boolean;
+  ignore_junk_contacts: boolean;
+  default_cutoff: { hot: number; good: number };
+  area_cutoffs: Record<string, { hot: number; good: number }>;
+}
+
+export interface ScoringProfile {
+  id: string;
+  name: string;
+  description: string;
+  applies_to_types: string[];
+  config: ScoringConfig;
+  is_active: boolean;
+  scored_leads: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export const GROUP_TYPE_LABELS: Record<GroupType, string> = {
+  group: 'Group',
+  small_group: 'Small group',
+  independent: 'Independent',
+  restaurant_stay: 'Restaurant + stay',
+  chain: 'Chain',
+  skip: 'Skip (not a target)'
+};

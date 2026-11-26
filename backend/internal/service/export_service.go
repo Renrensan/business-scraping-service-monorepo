@@ -29,12 +29,18 @@ func (s *ExportService) ExportCSV(ctx context.Context, filter model.BusinessFilt
 	var buf bytes.Buffer
 	writer := csv.NewWriter(&buf)
 
-	headers := []string{
+	// With a scoring profile selected, the ranking comes first, like the approach checklist.
+	scored := filter.ScoreProfileID != nil || strings.TrimSpace(filter.ScoreProfileName) != ""
+	var headers []string
+	if scored {
+		headers = append(headers, "Tier", "Score", "Scoring Area", "Group Type", "Group", "Why")
+	}
+	headers = append(headers,
 		"Name", "Category", "Address", "City", "State", "Postal Code", "Country",
 		"Phone", "Website", "Emails", "Secondary Phones", "Rating", "Review Count",
 		"Price Level", "Claimed", "Contacted", "Lead Status", "Facebook", "Instagram", "LinkedIn", "Twitter",
 		"YouTube", "TikTok", "Google Maps URL", "Latitude", "Longitude", "Place ID",
-	}
+	)
 	if err := writer.Write(headers); err != nil {
 		return nil, "", err
 	}
@@ -42,7 +48,22 @@ func (s *ExportService) ExportCSV(ctx context.Context, filter model.BusinessFilt
 	for _, l := range leads {
 		emailsStr := strings.Join(l.Emails, "; ")
 		phonesStr := strings.Join(l.Phones, "; ")
-		row := []string{
+		var row []string
+		if scored {
+			tier, score, area, note := "", "", "", ""
+			if l.Score != nil {
+				tier, score, area, note = strings.ToUpper(l.Score.Tier), fmt.Sprintf("%d", l.Score.Score), l.Score.AreaName, l.Score.Note
+			}
+			groupType, groupName := l.SuggestedGroupType, l.SuggestedGroupName
+			if l.GroupType != nil {
+				groupType = *l.GroupType
+			}
+			if l.GroupName != nil {
+				groupName = *l.GroupName
+			}
+			row = append(row, tier, score, area, groupType, groupName, note)
+		}
+		row = append(row,
 			l.Name,
 			l.Category,
 			l.Address,
@@ -70,7 +91,7 @@ func (s *ExportService) ExportCSV(ctx context.Context, filter model.BusinessFilt
 			fmt.Sprintf("%f", l.Latitude),
 			fmt.Sprintf("%f", l.Longitude),
 			l.PlaceID,
-		}
+		)
 		if err := writer.Write(row); err != nil {
 			return nil, "", err
 		}

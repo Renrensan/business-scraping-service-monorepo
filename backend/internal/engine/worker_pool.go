@@ -133,6 +133,12 @@ func (wp *WorkerPool) SetGoogleAPIKey(apiKey string) {
 	wp.keyMu.Unlock()
 }
 
+// SetScorer makes every scrape path refresh lead scores after saving or enriching leads.
+func (wp *WorkerPool) SetScorer(s LeadScorer) {
+	wp.runner.scorer = s
+	wp.enricher.scorer = s
+}
+
 // KeywordRunner is the shared keyword pipeline used by the keyword service and the scheduler.
 func (wp *WorkerPool) KeywordRunner() *KeywordRunner {
 	return wp.runner
@@ -248,6 +254,7 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) (mod
 		tags = append(tags, job.Category)
 	}
 	ingest := IngestLeads(ctx, wp.businessRepo, job.ID, leads, tags...)
+	wp.runner.rescore(ctx, ingest.Upserted)
 	if ingest.Saved > 0 || ingest.Failed > 0 {
 		if perr := wp.jobRepo.IncrementProgress(ctx, job.ID, ingest.Saved, 0, ingest.Failed); perr != nil {
 			slog.Error("Failed to update job progress", "job_id", job.ID, "error", perr)

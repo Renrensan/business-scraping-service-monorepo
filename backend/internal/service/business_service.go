@@ -10,10 +10,11 @@ import (
 
 type BusinessService struct {
 	businessRepo *repository.BusinessRepository
+	scoringRepo  *repository.ScoringRepository
 }
 
-func NewBusinessService(businessRepo *repository.BusinessRepository) *BusinessService {
-	return &BusinessService{businessRepo: businessRepo}
+func NewBusinessService(businessRepo *repository.BusinessRepository, scoringRepo *repository.ScoringRepository) *BusinessService {
+	return &BusinessService{businessRepo: businessRepo, scoringRepo: scoringRepo}
 }
 
 func (s *BusinessService) List(ctx context.Context, filter model.BusinessFilter) (*model.BusinessListResponse, error) {
@@ -21,7 +22,16 @@ func (s *BusinessService) List(ctx context.Context, filter model.BusinessFilter)
 }
 
 func (s *BusinessService) GetByID(ctx context.Context, id uuid.UUID) (*model.BusinessLead, error) {
-	return s.businessRepo.GetByID(ctx, id)
+	lead, err := s.businessRepo.GetByID(ctx, id)
+	if err != nil || lead == nil || s.scoringRepo == nil {
+		return lead, err
+	}
+	scores, err := s.scoringRepo.ScoresForLead(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	lead.Scores = scores
+	return lead, nil
 }
 
 func (s *BusinessService) Delete(ctx context.Context, id uuid.UUID) error {

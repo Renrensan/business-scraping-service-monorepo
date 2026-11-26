@@ -40,6 +40,9 @@ type KeywordService struct {
 	queue       *engine.JobQueue
 	wp          *engine.WorkerPool
 	runner      *engine.KeywordRunner
+
+	// OnAreasChanged runs after an area is added or deleted (lead areas for scoring may change).
+	OnAreasChanged func()
 }
 
 func NewKeywordService(
@@ -154,11 +157,20 @@ func (s *KeywordService) AddArea(ctx context.Context, req AddAreaRequest) (*mode
 	if err := s.areaRepo.Create(ctx, area); err != nil {
 		return nil, err
 	}
+	if s.OnAreasChanged != nil {
+		s.OnAreasChanged()
+	}
 	return area, nil
 }
 
 func (s *KeywordService) DeleteArea(ctx context.Context, id uuid.UUID) error {
-	return s.areaRepo.Delete(ctx, id)
+	if err := s.areaRepo.Delete(ctx, id); err != nil {
+		return err
+	}
+	if s.OnAreasChanged != nil {
+		s.OnAreasChanged()
+	}
+	return nil
 }
 
 func (s *KeywordService) List(ctx context.Context, filter model.ListKeywordFilter) (*model.ListKeywordResponse, error) {

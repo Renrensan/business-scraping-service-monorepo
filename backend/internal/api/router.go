@@ -21,6 +21,7 @@ type Handlers struct {
 	System   *handler.SystemHandler
 	Keyword  *handler.KeywordHandler
 	Area     *handler.AreaHandler
+	Scoring  *handler.ScoringHandler
 }
 
 type Services struct {
@@ -98,6 +99,16 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 			protected.Get("/businesses/{id}", h.Business.GetByID)
 			protected.Patch("/businesses/{id}/contacted", h.Business.PatchContacted)
 			protected.Patch("/businesses/{id}/status", h.Business.PatchStatus)
+			protected.Patch("/businesses/{id}/grouping", h.Scoring.SetLeadGrouping)
+			protected.Patch("/businesses/{id}/scores/{profileID}", h.Scoring.SetScoreOverride)
+
+			// Scoring profiles (lead ranking, e.g. GuestChatPro)
+			protected.Get("/scoring/options", h.Scoring.Options)
+			protected.Get("/scoring/profiles", h.Scoring.ListProfiles)
+			protected.Post("/scoring/profiles", h.Scoring.CreateProfile)
+			protected.Put("/scoring/profiles/{id}", h.Scoring.UpdateProfile)
+			protected.Delete("/scoring/profiles/{id}", h.Scoring.DeleteProfile)
+			protected.Post("/scoring/rescore", h.Scoring.Rescore)
 			protected.Delete("/businesses/{id}", h.Business.Delete)
 
 			// Export

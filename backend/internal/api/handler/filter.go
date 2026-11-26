@@ -61,6 +61,23 @@ func parseBusinessFilter(q url.Values) model.BusinessFilter {
 			filter.MaxReviews = &val
 		}
 	}
+	// Scoring: score_profile is a profile ID or name; tiers can repeat or be comma-separated.
+	if v := strings.TrimSpace(q.Get("score_profile")); v != "" {
+		if id, err := uuid.Parse(v); err == nil {
+			filter.ScoreProfileID = &id
+		} else {
+			filter.ScoreProfileName = v
+		}
+	}
+	for _, raw := range append(q["tiers"], q["tiers[]"]...) {
+		for _, part := range strings.Split(raw, ",") {
+			if t := strings.ToLower(strings.TrimSpace(part)); t != "" {
+				filter.Tiers = append(filter.Tiers, t)
+			}
+		}
+	}
+	filter.ScoreArea = q.Get("score_area")
+
 	if v := q.Get("job_id"); v != "" {
 		if id, err := uuid.Parse(v); err == nil {
 			filter.JobID = &id

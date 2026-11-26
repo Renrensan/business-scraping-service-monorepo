@@ -392,7 +392,8 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 		       price_level, claimed, business_status, website, primary_phone, emails, phones,
 		       facebook_url, instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url,
 		       google_maps_url, opening_hours, photos, enrichment_status, last_scraped_at,
-		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at, scrape_keywords
+		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at, scrape_keywords,
+		       group_type, group_name, suggested_group_type, suggested_group_name
 		FROM business_leads
 		WHERE id = $1
 	`
@@ -406,6 +407,7 @@ func (r *BusinessRepository) GetByID(ctx context.Context, id uuid.UUID) (*model.
 		&lead.FacebookURL, &lead.InstagramURL, &lead.LinkedinURL, &lead.TwitterURL, &lead.YoutubeURL, &lead.TiktokURL,
 		&lead.GoogleMapsURL, &hoursBytes, &photosBytes, &lead.EnrichmentStatus, &lead.LastScrapedAt,
 		&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.LeadStatus, &lead.CreatedAt, &lead.UpdatedAt, &scrapeKwBytes,
+		&lead.GroupType, &lead.GroupName, &lead.SuggestedGroupType, &lead.SuggestedGroupName,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -590,11 +592,51 @@ func (r *BusinessRepository) List(ctx context.Context, filter model.BusinessFilt
 func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilter) (*model.BusinessListResponse, error) {
 	offset := (filter.Page - 1) * filter.PageSize
 
+	if filter.ScoreProfileID == nil && strings.TrimSpace(filter.ScoreProfileName) != "" {
+		var id uuid.UUID
+		err := r.db.QueryRow(ctx, `SELECT id FROM scoring_profiles WHERE LOWER(name) = LOWER($1)`, strings.TrimSpace(filter.ScoreProfileName)).Scan(&id)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, fmt.Errorf("scoring profile %q not found", filter.ScoreProfileName)
+			}
+			return nil, err
+		}
+		filter.ScoreProfileID = &id
+	}
+
 	whereSQL, args := buildBusinessWhere(filter)
 	argIdx := len(args) + 1
 
+	// With a scoring profile, join its scores (leads it doesn't apply to have none).
+	fromSQL := "business_leads"
+	scoreCols := ""
+	scored := filter.ScoreProfileID != nil
+	if scored {
+		fromSQL = fmt.Sprintf("business_leads LEFT JOIN lead_scores ls ON ls.lead_id = business_leads.id AND ls.profile_id = $%d", argIdx)
+		args = append(args, *filter.ScoreProfileID)
+		argIdx++
+		scoreCols = `, ls.score, ls.raw_score, ls.tier, ls.computed_tier, ls.tier_override, ls.note, ls.area_name, ls.breakdown, ls.computed_at`
+
+		var tiers []string
+		for _, t := range filter.Tiers {
+			if t = strings.ToLower(strings.TrimSpace(t)); t != "" {
+				tiers = append(tiers, t)
+			}
+		}
+		if len(tiers) > 0 {
+			whereSQL += fmt.Sprintf(" AND ls.tier = ANY($%d::text[])", argIdx)
+			args = append(args, tiers)
+			argIdx++
+		}
+		if area := strings.TrimSpace(filter.ScoreArea); area != "" {
+			whereSQL += fmt.Sprintf(" AND LOWER(ls.area_name) = LOWER($%d)", argIdx)
+			args = append(args, area)
+			argIdx++
+		}
+	}
+
 	// Count query
-	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM business_leads WHERE %s", whereSQL)
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s WHERE %s", fromSQL, whereSQL)
 	var totalCount int64
 	if err := r.db.QueryRow(ctx, countQuery, args...).Scan(&totalCount); err != nil {
 		return nil, err
@@ -621,6 +663,24 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 	if strings.ToUpper(filter.SortOrder) == "ASC" {
 		sortOrder = "ASC"
 	}
+	orderSQL := fmt.Sprintf("%s %s", sortBy, sortOrder)
+	if scored && strings.EqualFold(filter.SortBy, "score") {
+		if sortOrder == "ASC" {
+			orderSQL = "ls.score ASC NULLS LAST, name"
+		} else {
+			// Best first by tier, then score; sister properties (same group) follow their group's best
+			// property so they are pitched together. Unscored leads go last.
+			orderSQL = `(ls.tier IS NULL),
+				MIN(CASE ls.tier WHEN 'hot' THEN 0 WHEN 'good' THEN 1 WHEN 'low' THEN 2 WHEN 'skip' THEN 3 END) OVER grp,
+				MAX(ls.score) OVER grp DESC,
+				COALESCE(NULLIF(COALESCE(business_leads.group_name, business_leads.suggested_group_name), ''), business_leads.id::text),
+				ls.score DESC, name`
+		}
+	}
+	windowSQL := ""
+	if scored {
+		windowSQL = `WINDOW grp AS (PARTITION BY COALESCE(NULLIF(COALESCE(business_leads.group_name, business_leads.suggested_group_name), ''), business_leads.id::text))`
+	}
 
 	selectQuery := fmt.Sprintf(`
 		SELECT id, job_id, place_id, cid, name, category, subcategories, address, street,
@@ -628,12 +688,14 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 		       price_level, claimed, business_status, website, primary_phone, emails, phones,
 		       facebook_url, instagram_url, linkedin_url, twitter_url, youtube_url, tiktok_url,
 		       google_maps_url, opening_hours, photos, enrichment_status, last_scraped_at,
-		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at, scrape_keywords
-		FROM business_leads
+		       last_enriched_at, contacted, contacted_at, lead_status, created_at, updated_at, scrape_keywords,
+		       group_type, group_name, suggested_group_type, suggested_group_name%s
+		FROM %s
 		WHERE %s
-		ORDER BY %s %s
+		%s
+		ORDER BY %s
 		LIMIT $%d OFFSET $%d
-	`, whereSQL, sortBy, sortOrder, argIdx, argIdx+1)
+	`, scoreCols, fromSQL, whereSQL, windowSQL, orderSQL, argIdx, argIdx+1)
 
 	queryArgs := append(args, filter.PageSize, offset)
 	rows, err := r.db.Query(ctx, selectQuery, queryArgs...)
@@ -647,15 +709,24 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 		var lead model.BusinessLead
 		var subcatBytes, emailsBytes, phonesBytes, hoursBytes, photosBytes, scrapeKwBytes []byte
 
-		if err := rows.Scan(
+		dest := []interface{}{
 			&lead.ID, &lead.JobID, &lead.PlaceID, &lead.CID, &lead.Name, &lead.Category, &subcatBytes, &lead.Address, &lead.Street,
 			&lead.City, &lead.State, &lead.PostalCode, &lead.Country, &lead.Latitude, &lead.Longitude, &lead.Rating, &lead.ReviewCount,
 			&lead.PriceLevel, &lead.Claimed, &lead.BusinessStatus, &lead.Website, &lead.PrimaryPhone, &emailsBytes, &phonesBytes,
 			&lead.FacebookURL, &lead.InstagramURL, &lead.LinkedinURL, &lead.TwitterURL, &lead.YoutubeURL, &lead.TiktokURL,
 			&lead.GoogleMapsURL, &hoursBytes, &photosBytes, &lead.EnrichmentStatus, &lead.LastScrapedAt,
 			&lead.LastEnrichedAt, &lead.Contacted, &lead.ContactedAt, &lead.LeadStatus, &lead.CreatedAt, &lead.UpdatedAt, &scrapeKwBytes,
-		); err != nil {
+			&lead.GroupType, &lead.GroupName, &lead.SuggestedGroupType, &lead.SuggestedGroupName,
+		}
+		var sc scoreScan
+		if scored {
+			dest = append(dest, sc.dest()...)
+		}
+		if err := rows.Scan(dest...); err != nil {
 			return nil, err
+		}
+		if scored {
+			lead.Score = sc.toScore(*filter.ScoreProfileID)
 		}
 
 		_ = json.Unmarshal(subcatBytes, &lead.Subcategories)
@@ -937,4 +1008,47 @@ func (r *BusinessRepository) ListPendingEnrichment(ctx context.Context, olderTha
 		leads = append(leads, l)
 	}
 	return leads, rows.Err()
+}
+
+// scoreScan receives the nullable lead_scores columns of a LEFT JOIN.
+type scoreScan struct {
+	score        *int
+	raw          *float64
+	tier         *string
+	computedTier *string
+	override     *string
+	note         *string
+	area         *string
+	breakdown    []byte
+	computedAt   *time.Time
+}
+
+func (s *scoreScan) dest() []interface{} {
+	return []interface{}{&s.score, &s.raw, &s.tier, &s.computedTier, &s.override, &s.note, &s.area, &s.breakdown, &s.computedAt}
+}
+
+func (s *scoreScan) toScore(profileID uuid.UUID) *model.LeadScore {
+	if s.score == nil {
+		return nil
+	}
+	out := &model.LeadScore{ProfileID: profileID, Score: *s.score, TierOverride: s.override, Breakdown: s.breakdown}
+	if s.raw != nil {
+		out.RawScore = *s.raw
+	}
+	if s.tier != nil {
+		out.Tier = *s.tier
+	}
+	if s.computedTier != nil {
+		out.ComputedTier = *s.computedTier
+	}
+	if s.note != nil {
+		out.Note = *s.note
+	}
+	if s.area != nil {
+		out.AreaName = *s.area
+	}
+	if s.computedAt != nil {
+		out.ComputedAt = *s.computedAt
+	}
+	return out
 }

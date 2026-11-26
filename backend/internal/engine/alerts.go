@@ -66,7 +66,10 @@ func (a *Alerter) Notify(kind, text string) {
 func evolutionSender(baseURL, apiKey, instance, number string) func(ctx context.Context, text string) error {
 	client := &http.Client{Timeout: 10 * time.Second}
 	return func(ctx context.Context, text string) error {
-		body, _ := json.Marshal(map[string]string{"number": number, "text": text})
+		body, err := json.Marshal(map[string]string{"number": number, "text": text})
+		if err != nil {
+			return fmt.Errorf("encoding alert: %w", err)
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/message/sendText/"+instance, bytes.NewReader(body))
 		if err != nil {
 			return err

@@ -129,7 +129,11 @@ func (s *Scorer) rescore(ctx context.Context, ids []uuid.UUID) error {
 				areaDone = true
 			}
 			res := scoring.Compute(sl, p.cfg, area)
-			bd, _ := json.Marshal(res.Breakdown)
+			bd, err := json.Marshal(res.Breakdown)
+			if err != nil {
+				slog.Error("skipping lead score: breakdown not encodable", "lead_id", l.ID, "profile_id", p.id, "error", err)
+				continue
+			}
 			rows = append(rows, repository.ScoreRow{
 				LeadID: l.ID, ProfileID: p.id, Score: res.Score, RawScore: res.Raw,
 				ComputedTier: res.Tier, AreaName: area, Breakdown: bd,

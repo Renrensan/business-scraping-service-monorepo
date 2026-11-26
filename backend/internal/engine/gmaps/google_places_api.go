@@ -342,7 +342,10 @@ func (c *PlacesAPIClient) LookupArea(ctx context.Context, name string) (*Rect, s
 	if len(resp.Places) == 0 {
 		return nil, "", fmt.Errorf("no place found for %q", name)
 	}
-	raw, _ := json.Marshal(resp.Places[0])
+	raw, err := json.Marshal(resp.Places[0])
+	if err != nil {
+		return nil, "", fmt.Errorf("reading place for %q: %w", name, err)
+	}
 	var p struct {
 		DisplayName struct {
 			Text string `json:"text"`

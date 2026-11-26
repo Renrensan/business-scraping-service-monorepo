@@ -102,8 +102,11 @@ func profileWriteErr(err error) error {
 }
 
 func (r *ScoringRepository) CreateProfile(ctx context.Context, p *model.ScoringProfile) error {
-	applies, _ := json.Marshal(p.AppliesToTypes)
-	err := r.db.QueryRow(ctx, `
+	applies, err := json.Marshal(p.AppliesToTypes)
+	if err != nil {
+		return fmt.Errorf("encoding applies_to_types: %w", err)
+	}
+	err = r.db.QueryRow(ctx, `
 		INSERT INTO scoring_profiles (name, description, applies_to_types, config, is_active)
 		VALUES ($1, $2, $3, $4, $5)
 		RETURNING id, created_at, updated_at`,
@@ -112,7 +115,10 @@ func (r *ScoringRepository) CreateProfile(ctx context.Context, p *model.ScoringP
 }
 
 func (r *ScoringRepository) UpdateProfile(ctx context.Context, p *model.ScoringProfile) error {
-	applies, _ := json.Marshal(p.AppliesToTypes)
+	applies, err := json.Marshal(p.AppliesToTypes)
+	if err != nil {
+		return fmt.Errorf("encoding applies_to_types: %w", err)
+	}
 	tag, err := r.db.Exec(ctx, `
 		UPDATE scoring_profiles
 		SET name = $2, description = $3, applies_to_types = $4, config = $5, is_active = $6, updated_at = NOW()

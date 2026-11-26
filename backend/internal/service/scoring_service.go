@@ -112,7 +112,10 @@ func (s *ScoringService) CreateProfile(ctx context.Context, in ProfileInput) (*m
 	if err := validateProfile(&in); err != nil {
 		return nil, err
 	}
-	cfg, _ := json.Marshal(in.Config)
+	cfg, err := json.Marshal(in.Config)
+	if err != nil {
+		return nil, fmt.Errorf("encoding scoring config: %w", err)
+	}
 	p := &model.ScoringProfile{Name: in.Name, Description: in.Description, AppliesToTypes: in.AppliesToTypes, Config: cfg, IsActive: in.IsActive == nil || *in.IsActive}
 	if err := s.repo.CreateProfile(ctx, p); err != nil {
 		return nil, err
@@ -131,7 +134,10 @@ func (s *ScoringService) UpdateProfile(ctx context.Context, id uuid.UUID, in Pro
 	if err := validateProfile(&in); err != nil {
 		return nil, err
 	}
-	cfg, _ := json.Marshal(in.Config)
+	cfg, err := json.Marshal(in.Config)
+	if err != nil {
+		return nil, fmt.Errorf("encoding scoring config: %w", err)
+	}
 	existing.Name, existing.Description, existing.AppliesToTypes, existing.Config = in.Name, in.Description, in.AppliesToTypes, cfg
 	if in.IsActive != nil {
 		existing.IsActive = *in.IsActive

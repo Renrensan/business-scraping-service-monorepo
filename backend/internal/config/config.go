@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strconv"
 	"strings"
@@ -46,8 +48,11 @@ type Config struct {
 }
 
 func LoadConfig() (*Config, error) {
-	_ = godotenv.Overload("../.env")
-	_ = godotenv.Overload(".env")
+	for _, f := range []string{"../.env", ".env"} {
+		if err := godotenv.Overload(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return nil, fmt.Errorf("loading %s: %w", f, err)
+		}
+	}
 
 	port := getEnvInt("PORT", 8080)
 	nodeEnv := cleanStr(getEnv("NODE_ENV", "development"))

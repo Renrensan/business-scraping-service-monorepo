@@ -62,7 +62,10 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		return fmt.Errorf("failed to take migration lock: %w", err)
 	}
 	defer func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationLockID)
+		if _, err := conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationLockID); err != nil {
+			// Released anyway when the connection closes.
+			slog.Warn("failed to release migration lock", "error", err)
+		}
 	}()
 
 	if _, err := conn.Exec(ctx, `
@@ -112,11 +115,11 @@ func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
 		}
 		// Executed as one multi-statement script (simple protocol), inside a transaction.
 		if _, err := tx.Exec(ctx, string(body)); err != nil {
-			_ = tx.Rollback(ctx)
+			_ = tx.Rollback(ctx) // already failing; the original error is what matters
 			return fmt.Errorf("migration %s failed: %w", version, err)
 		}
 		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, version); err != nil {
-			_ = tx.Rollback(ctx)
+			_ = tx.Rollback(ctx) // already failing; the original error is what matters
 			return fmt.Errorf("failed to record migration %s: %w", version, err)
 		}
 		if err := tx.Commit(ctx); err != nil {

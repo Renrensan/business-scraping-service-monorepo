@@ -357,7 +357,11 @@ func (s *Scheduler) UpdateSchedule(
 
 	if s.settingsRepo != nil {
 		go func(saved ScheduleInfo) {
-			_ = s.settingsRepo.Set(context.Background(), "bali_schedule", saved)
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if err := s.settingsRepo.Set(ctx, "bali_schedule", saved); err != nil {
+				slog.Error("failed to save schedule settings; they reset on restart", "error", err)
+			}
 		}(info)
 	}
 

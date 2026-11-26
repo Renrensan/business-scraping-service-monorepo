@@ -64,8 +64,11 @@ func (r *JobRepository) Create(ctx context.Context, job *model.ScrapeJob) error 
 	job.CreatedAt = now
 	job.UpdatedAt = now
 
-	metaJSON, _ := json.Marshal(job.Metadata)
-	if len(metaJSON) == 0 || string(metaJSON) == "null" {
+	metaJSON, err := json.Marshal(job.Metadata)
+	if err != nil {
+		return fmt.Errorf("encoding job metadata: %w", err)
+	}
+	if string(metaJSON) == "null" {
 		metaJSON = []byte("{}")
 	}
 
@@ -78,7 +81,7 @@ func (r *JobRepository) Create(ctx context.Context, job *model.ScrapeJob) error 
 			$1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18
 		)
 	`
-	_, err := r.db.Exec(ctx, query,
+	_, err = r.db.Exec(ctx, query,
 		job.ID, job.Status, job.Query, job.Location, job.Category, job.MaxResults, job.EnrichContacts,
 		job.TotalScraped, job.TotalEnriched, job.ErrorCount, job.ErrorMessage, metaJSON,
 		job.StartedAt, job.CompletedAt, job.CreatedAt, job.UpdatedAt, job.Kind, job.KeywordID,

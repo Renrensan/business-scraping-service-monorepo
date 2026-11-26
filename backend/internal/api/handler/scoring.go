@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -113,7 +114,11 @@ func (h *ScoringHandler) SetLeadGrouping(w http.ResponseWriter, r *http.Request)
 		utils.RespondError(w, scoringErrStatus(err), err.Error())
 		return
 	}
-	scores, _ := h.svc.ScoresForLead(r.Context(), id)
+	scores, err := h.svc.ScoresForLead(r.Context(), id)
+	if err != nil {
+		slog.Error("saved, but failed to reload lead scores", "lead_id", id, "error", err)
+		scores = nil
+	}
 	utils.RespondSuccess(w, http.StatusOK, "Group updated", scores)
 }
 
@@ -137,6 +142,10 @@ func (h *ScoringHandler) SetScoreOverride(w http.ResponseWriter, r *http.Request
 		utils.RespondError(w, scoringErrStatus(err), err.Error())
 		return
 	}
-	scores, _ := h.svc.ScoresForLead(r.Context(), id)
+	scores, err := h.svc.ScoresForLead(r.Context(), id)
+	if err != nil {
+		slog.Error("saved, but failed to reload lead scores", "lead_id", id, "error", err)
+		scores = nil
+	}
 	utils.RespondSuccess(w, http.StatusOK, "Tier updated", scores)
 }

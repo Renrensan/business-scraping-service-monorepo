@@ -181,7 +181,9 @@ func main() {
 
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			slog.Error("Error during HTTP server shutdown", "error", err)
-			_ = server.Close()
+			if err := server.Close(); err != nil {
+				slog.Error("Error closing HTTP server", "error", err)
+			}
 		}
 		jobQueue.Shutdown(cfg.ShutdownGrace)
 		cancel()

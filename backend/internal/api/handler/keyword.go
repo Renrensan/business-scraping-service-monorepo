@@ -108,7 +108,10 @@ func (h *KeywordHandler) Trigger(w http.ResponseWriter, r *http.Request) {
 	opts.EnrichContacts = true
 
 	if r.Body != nil && r.ContentLength > 0 {
-		_ = json.NewDecoder(r.Body).Decode(&opts)
+		if err := json.NewDecoder(r.Body).Decode(&opts); err != nil {
+			utils.RespondError(w, http.StatusBadRequest, "Invalid request payload")
+			return
+		}
 	}
 
 	result, err := h.keywordSvc.TriggerKeywordScrape(r.Context(), id, opts)

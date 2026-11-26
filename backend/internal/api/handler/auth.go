@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -73,7 +74,10 @@ func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	session := middleware.GetSessionFromContext(r.Context())
 	if session != nil {
-		_ = h.authSvc.Logout(r.Context(), session.Token)
+		if err := h.authSvc.Logout(r.Context(), session.Token); err != nil {
+			// The cookie is cleared below either way; the session expires on its own TTL.
+			slog.Warn("failed to delete session on logout", "error", err)
+		}
 	}
 
 	// Clear cookie

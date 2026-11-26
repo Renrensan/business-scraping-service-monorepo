@@ -2,6 +2,8 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 
 	"business-scraping-service/backend/internal/service"
@@ -135,7 +137,10 @@ type TriggerScrapeRequest struct {
 
 func (h *SystemHandler) TriggerImmediateScrape(w http.ResponseWriter, r *http.Request) {
 	var req TriggerScrapeRequest
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+		utils.RespondError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
 
 	queries := req.Queries
 	if len(queries) == 0 && req.Query != "" {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -32,7 +33,9 @@ func (h *ExportHandler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", filename))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(csvBytes)
+	if _, err := w.Write(csvBytes); err != nil {
+		slog.Debug("failed to write export", "error", err) // client went away
+	}
 }
 
 // ExportWAContacts downloads the filtered leads as a Google Contacts CSV for WhatsApp.
@@ -61,5 +64,7 @@ func (h *ExportHandler) ExportWAContacts(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("X-Export-Count", strconv.Itoa(res.Exported))
 	w.Header().Set("X-Export-Skipped", strconv.Itoa(res.Skipped))
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(res.CSV)
+	if _, err := w.Write(res.CSV); err != nil {
+		slog.Debug("failed to write export", "error", err) // client went away
+	}
 }

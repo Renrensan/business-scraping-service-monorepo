@@ -3,12 +3,14 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
 	"business-scraping-service/backend/internal/session"
 	"business-scraping-service/backend/internal/utils"
+
 	"github.com/google/uuid"
 )
 
@@ -58,7 +60,10 @@ func (s *AuthService) ValidateSession(ctx context.Context, token string) (*model
 	if err != nil || data == nil {
 		return nil, err
 	}
-	_ = s.sessionStore.TouchSession(ctx, token)
+	if err := s.sessionStore.TouchSession(ctx, token); err != nil {
+		// The session is valid; failing to extend it only shortens its life.
+		slog.Warn("failed to extend session", "error", err)
+	}
 	return data, nil
 }
 

@@ -348,9 +348,11 @@ func (q *JobQueue) execute(job *model.ScrapeJob) {
 			slog.Error("panic recovered while running job", "job_id", job.ID, "panic", r)
 			wctx, wcancel := writeCtx()
 			defer wcancel()
-			_ = q.jobs.UpdateStatus(wctx, job.ID, model.JobStatusFailed, 0, 0, 1, fmt.Sprintf("internal error: %v", r))
+			if err := q.jobs.UpdateStatus(wctx, job.ID, model.JobStatusFailed, 0, 0, 1, fmt.Sprintf("internal error: %v", r)); err != nil {
+				slog.Error("failed to mark panicked job failed; heartbeat recovery will retry it", "job_id", job.ID, "error", err)
+			}
 			if job.KeywordID != nil {
-				_, _ = q.keywords.RestoreOrphanedProcessing(wctx)
+				q.restoreKeywords(wctx)
 			}
 		}
 	}()
@@ -412,7 +414,9 @@ func (q *JobQueue) execute(job *model.ScrapeJob) {
 		if err := q.jobs.Requeue(wctx, job.ID, "Interrupted by a restart; queued again"); err != nil {
 			slog.Error("Failed to requeue interrupted job", "job_id", job.ID, "error", err)
 		} else if job.KeywordID != nil {
-			_ = q.keywords.SetStatus(wctx, *job.KeywordID, model.KeywordStatusProcessing)
+			if err := q.keywords.SetStatus(wctx, *job.KeywordID, model.KeywordStatusProcessing); err != nil {
+				slog.Error("failed to mark requeued keyword processing", "keyword_id", *job.KeywordID, "error", err)
+			}
 		}
 		slog.Warn("Job interrupted by shutdown and requeued", "job_id", job.ID)
 	}
@@ -433,7 +437,14 @@ func (q *JobQueue) failWithoutRunning(job *model.ScrapeJob, msg string) {
 		slog.Error("Failed to fail job", "job_id", job.ID, "error", err)
 	}
 	if job.KeywordID != nil {
-		_, _ = q.keywords.RestoreOrphanedProcessing(wctx)
+		q.restoreKeywords(wctx)
+	}
+}
+
+// restoreKeywords fixes keywords left in "processing" without a job.
+func (q *JobQueue) restoreKeywords(ctx context.Context) {
+	if _, err := q.keywords.RestoreOrphanedProcessing(ctx); err != nil {
+		slog.Error("failed to restore stuck keywords; maintenance will retry", "error", err)
 	}
 }
 

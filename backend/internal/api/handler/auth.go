@@ -43,8 +43,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		Secure:   false, // set to true in production over HTTPS
 	})
 
-	utils.RespondJSON(w, http.StatusOK, map[string]interface{}{
-		"user": map[string]interface{}{
+	utils.RespondJSON(w, http.StatusOK, map[string]any{
+		"user": map[string]any{
 			"id":        admin.ID,
 			"username":  admin.Username,
 			"email":     admin.Email,
@@ -61,7 +61,7 @@ func (h *AuthHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.RespondJSON(w, http.StatusOK, map[string]interface{}{
+	utils.RespondJSON(w, http.StatusOK, map[string]any{
 		"adminId":      session.AdminID,
 		"username":     session.Username,
 		"email":        session.Email,

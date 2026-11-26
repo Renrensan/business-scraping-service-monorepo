@@ -520,7 +520,7 @@ func (q *JobQueue) EnqueueKeyword(ctx context.Context, kw *model.ScraperKeyword,
 		Category:       category,
 		MaxResults:     opts.MaxPages * opts.PageSize,
 		EnrichContacts: opts.Enrich,
-		Metadata: map[string]interface{}{
+		Metadata: map[string]any{
 			"source":       source,
 			"keyword_id":   kw.ID.String(),
 			"current_page": startPage,
@@ -538,7 +538,7 @@ func (q *JobQueue) EnqueueKeyword(ctx context.Context, kw *model.ScraperKeyword,
 	return job, nil
 }
 
-func metaInt(meta map[string]interface{}, key string, def int) int {
+func metaInt(meta map[string]any, key string, def int) int {
 	switch v := meta[key].(type) {
 	case float64:
 		return int(v)

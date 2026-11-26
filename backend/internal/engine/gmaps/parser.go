@@ -18,7 +18,7 @@ func sanitizeKey(s string) string {
 	return sanitizerRegex.ReplaceAllString(s, "_")
 }
 
-func ParseRawPlaceData(data map[string]interface{}) *model.BusinessLead {
+func ParseRawPlaceData(data map[string]any) *model.BusinessLead {
 	lead := &model.BusinessLead{
 		EnrichmentStatus: model.EnrichmentNone,
 		BusinessStatus:   "OPERATIONAL",
@@ -31,7 +31,7 @@ func ParseRawPlaceData(data map[string]interface{}) *model.BusinessLead {
 	if name, ok := data["name"].(string); ok {
 		lead.Name = name
 	}
-	if displayName, ok := data["displayName"].(map[string]interface{}); ok {
+	if displayName, ok := data["displayName"].(map[string]any); ok {
 		if text, ok := displayName["text"].(string); ok {
 			lead.Name = text
 		}
@@ -41,7 +41,7 @@ func ParseRawPlaceData(data map[string]interface{}) *model.BusinessLead {
 	} else if category, ok := data["category"].(string); ok {
 		lead.Category = category
 	}
-	if types, ok := data["types"].([]interface{}); ok {
+	if types, ok := data["types"].([]any); ok {
 		for _, t := range types {
 			if s, ok := t.(string); ok {
 				lead.Subcategories = append(lead.Subcategories, formatCategory(s))
@@ -55,7 +55,7 @@ func ParseRawPlaceData(data map[string]interface{}) *model.BusinessLead {
 		lead.Address = address
 		parseAddressParts(lead, address)
 	}
-	if location, ok := data["location"].(map[string]interface{}); ok {
+	if location, ok := data["location"].(map[string]any); ok {
 		if lat, ok := location["latitude"].(float64); ok {
 			lead.Latitude = lat
 		}
@@ -105,7 +105,7 @@ func ParseRawPlaceData(data map[string]interface{}) *model.BusinessLead {
 }
 
 // EvaluateNewBusiness calculates a recency confidence score based directly on Google metadata
-func EvaluateNewBusiness(lead *model.BusinessLead, rawData map[string]interface{}, matchedNewQuery bool) (int, bool) {
+func EvaluateNewBusiness(lead *model.BusinessLead, rawData map[string]any, matchedNewQuery bool) (int, bool) {
 	score := 0
 
 	// 1. Google Business Status (OPENING_SOON = 100% pre-launch / grand opening)
@@ -116,7 +116,7 @@ func EvaluateNewBusiness(lead *model.BusinessLead, rawData map[string]interface{
 
 	// 2. Google Editorial Summary / Description Launch Indicators
 	var summaryText string
-	if ed, ok := rawData["editorialSummary"].(map[string]interface{}); ok {
+	if ed, ok := rawData["editorialSummary"].(map[string]any); ok {
 		if txt, ok := ed["text"].(string); ok {
 			summaryText = txt
 		}
@@ -140,13 +140,13 @@ func EvaluateNewBusiness(lead *model.BusinessLead, rawData map[string]interface{
 	}
 
 	// 3. Earliest Review Timestamps / Relative Date Analysis
-	if reviews, ok := rawData["reviews"].([]interface{}); ok && len(reviews) > 0 {
+	if reviews, ok := rawData["reviews"].([]any); ok && len(reviews) > 0 {
 		hasOldReview := false
 		allRecent := true
 		now := time.Now().UTC()
 
 		for _, r := range reviews {
-			revMap, ok := r.(map[string]interface{})
+			revMap, ok := r.(map[string]any)
 			if !ok {
 				continue
 			}

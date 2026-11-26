@@ -46,7 +46,7 @@ func (h *JobHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	utils.RespondJSON(w, http.StatusOK, map[string]interface{}{
+	utils.RespondJSON(w, http.StatusOK, map[string]any{
 		"items":       jobs,
 		"total_count": total,
 		"page":        page,

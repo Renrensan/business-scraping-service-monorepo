@@ -44,7 +44,7 @@ func TestSafeJSONArray(t *testing.T) {
 func TestSafeJSONObject(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    map[string]interface{}
+		input    map[string]any
 		expected string
 	}{
 		{
@@ -54,7 +54,7 @@ func TestSafeJSONObject(t *testing.T) {
 		},
 		{
 			name:     "empty map",
-			input:    map[string]interface{}{},
+			input:    map[string]any{},
 			expected: "{}",
 		},
 	}

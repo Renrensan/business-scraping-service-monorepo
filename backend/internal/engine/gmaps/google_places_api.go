@@ -107,8 +107,8 @@ type TextSearchRequest struct {
 }
 
 type TextSearchResponse struct {
-	Places        []map[string]interface{} `json:"places"`
-	NextPageToken string                   `json:"nextPageToken,omitempty"`
+	Places        []map[string]any `json:"places"`
+	NextPageToken string           `json:"nextPageToken,omitempty"`
 	Error         *struct {
 		Code    int    `json:"code"`
 		Message string `json:"message"`

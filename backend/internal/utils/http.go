@@ -6,14 +6,14 @@ import (
 )
 
 type APIResponse struct {
-	Success   bool        `json:"success"`
-	Data      interface{} `json:"data,omitempty"`
-	Message   string      `json:"message,omitempty"`
-	Error     string      `json:"error,omitempty"`
-	RequestID string      `json:"request_id,omitempty"`
+	Success   bool   `json:"success"`
+	Data      any    `json:"data,omitempty"`
+	Message   string `json:"message,omitempty"`
+	Error     string `json:"error,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
 }
 
-func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
+func RespondJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(APIResponse{
@@ -22,7 +22,7 @@ func RespondJSON(w http.ResponseWriter, status int, data interface{}) {
 	})
 }
 
-func RespondSuccess(w http.ResponseWriter, status int, msg string, data interface{}) {
+func RespondSuccess(w http.ResponseWriter, status int, msg string, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(APIResponse{

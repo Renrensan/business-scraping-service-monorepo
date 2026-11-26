@@ -51,7 +51,7 @@ func scanKeyword(row pgx.Row) (*model.ScraperKeyword, error) {
 	return kw, err
 }
 
-func (r *KeywordRepository) queryKeywords(ctx context.Context, sql string, args ...interface{}) ([]*model.ScraperKeyword, error) {
+func (r *KeywordRepository) queryKeywords(ctx context.Context, sql string, args ...any) ([]*model.ScraperKeyword, error) {
 	rows, err := r.db.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (r *KeywordRepository) List(ctx context.Context, filter model.ListKeywordFi
 	}
 
 	whereClauses := []string{"1=1"}
-	args := []interface{}{}
+	args := []any{}
 	argIdx := 1
 
 	if strings.TrimSpace(filter.Search) != "" {

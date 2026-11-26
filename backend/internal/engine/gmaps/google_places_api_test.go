@@ -50,9 +50,9 @@ func TestSearchPlacesTextWithCursor_PaginationFlow(t *testing.T) {
 				t.Errorf("Expected empty PageToken on page 1, got %q", req.PageToken)
 			}
 			resp := TextSearchResponse{
-				Places: []map[string]interface{}{
-					{"id": "places/place_1", "displayName": map[string]interface{}{"text": "Place 1"}},
-					{"id": "places/place_2", "displayName": map[string]interface{}{"text": "Place 2"}},
+				Places: []map[string]any{
+					{"id": "places/place_1", "displayName": map[string]any{"text": "Place 1"}},
+					{"id": "places/place_2", "displayName": map[string]any{"text": "Place 2"}},
 				},
 				NextPageToken: "token_for_page_2",
 			}
@@ -67,8 +67,8 @@ func TestSearchPlacesTextWithCursor_PaginationFlow(t *testing.T) {
 				t.Errorf("Expected PageToken 'token_for_page_2' on page 2, got %q", req.PageToken)
 			}
 			resp := TextSearchResponse{
-				Places: []map[string]interface{}{
-					{"id": "places/place_3", "displayName": map[string]interface{}{"text": "Place 3"}},
+				Places: []map[string]any{
+					{"id": "places/place_3", "displayName": map[string]any{"text": "Place 3"}},
 				},
 				NextPageToken: "", // End of results
 			}
@@ -165,9 +165,9 @@ func TestSearchPlacesTextWithCursor_MultiPageGracefulEndOfResults(t *testing.T) 
 		if callCount == 1 {
 			// Page 1 succeeds
 			resp := TextSearchResponse{
-				Places: []map[string]interface{}{
-					{"id": "places/place_1", "displayName": map[string]interface{}{"text": "Place 1"}},
-					{"id": "places/place_2", "displayName": map[string]interface{}{"text": "Place 2"}},
+				Places: []map[string]any{
+					{"id": "places/place_1", "displayName": map[string]any{"text": "Place 1"}},
+					{"id": "places/place_2", "displayName": map[string]any{"text": "Place 2"}},
 				},
 				NextPageToken: "token_page_2",
 			}

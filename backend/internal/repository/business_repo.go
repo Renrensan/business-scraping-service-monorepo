@@ -36,7 +36,7 @@ func safeJSONArray(items []string) []byte {
 	return b
 }
 
-func safeJSONObject(obj map[string]interface{}) []byte {
+func safeJSONObject(obj map[string]any) []byte {
 	if len(obj) == 0 {
 		return []byte("{}")
 	}
@@ -432,9 +432,9 @@ func (r *BusinessRepository) Delete(ctx context.Context, id uuid.UUID) error {
 }
 
 // buildBusinessWhere turns a BusinessFilter into a SQL WHERE expression and its positional args.
-func buildBusinessWhere(filter model.BusinessFilter) (string, []interface{}) {
+func buildBusinessWhere(filter model.BusinessFilter) (string, []any) {
 	whereClauses := []string{"1=1"}
-	args := []interface{}{}
+	args := []any{}
 	argIdx := 1
 
 	if filter.Search != "" {
@@ -709,7 +709,7 @@ func (r *BusinessRepository) list(ctx context.Context, filter model.BusinessFilt
 		var lead model.BusinessLead
 		var subcatBytes, emailsBytes, phonesBytes, hoursBytes, photosBytes, scrapeKwBytes []byte
 
-		dest := []interface{}{
+		dest := []any{
 			&lead.ID, &lead.JobID, &lead.PlaceID, &lead.CID, &lead.Name, &lead.Category, &subcatBytes, &lead.Address, &lead.Street,
 			&lead.City, &lead.State, &lead.PostalCode, &lead.Country, &lead.Latitude, &lead.Longitude, &lead.Rating, &lead.ReviewCount,
 			&lead.PriceLevel, &lead.Claimed, &lead.BusinessStatus, &lead.Website, &lead.PrimaryPhone, &emailsBytes, &phonesBytes,
@@ -1023,8 +1023,8 @@ type scoreScan struct {
 	computedAt   *time.Time
 }
 
-func (s *scoreScan) dest() []interface{} {
-	return []interface{}{&s.score, &s.raw, &s.tier, &s.computedTier, &s.override, &s.note, &s.area, &s.breakdown, &s.computedAt}
+func (s *scoreScan) dest() []any {
+	return []any{&s.score, &s.raw, &s.tier, &s.computedTier, &s.override, &s.note, &s.area, &s.breakdown, &s.computedAt}
 }
 
 func (s *scoreScan) toScore(profileID uuid.UUID) *model.LeadScore {

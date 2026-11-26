@@ -147,7 +147,7 @@ func TestQueue_CancelPendingSkipsWebAndRunningJobs(t *testing.T) {
 	_ = jobs.Create(ctx, running)
 	_, _ = jobs.ClaimNext(ctx)
 	_ = jobs.Create(ctx, &model.ScrapeJob{Query: "places", Location: "l"})
-	_ = jobs.Create(ctx, &model.ScrapeJob{Query: "web", Location: "l", Metadata: map[string]interface{}{"engine": "web"}})
+	_ = jobs.Create(ctx, &model.ScrapeJob{Query: "web", Location: "l", Metadata: map[string]any{"engine": "web"}})
 
 	n, err := jobs.CancelPendingPlacesJobs(ctx, "quota")
 	if err != nil || n != 1 {

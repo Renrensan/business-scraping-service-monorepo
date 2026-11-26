@@ -18,7 +18,7 @@ func NewSettingsRepository(db *pgxpool.Pool) *SettingsRepository {
 	return &SettingsRepository{db: db}
 }
 
-func (r *SettingsRepository) Get(ctx context.Context, key string, target interface{}) error {
+func (r *SettingsRepository) Get(ctx context.Context, key string, target any) error {
 	query := `SELECT value FROM system_settings WHERE key = $1 LIMIT 1`
 	var valBytes []byte
 	err := r.db.QueryRow(ctx, query, key).Scan(&valBytes)
@@ -31,7 +31,7 @@ func (r *SettingsRepository) Get(ctx context.Context, key string, target interfa
 	return json.Unmarshal(valBytes, target)
 }
 
-func (r *SettingsRepository) Set(ctx context.Context, key string, value interface{}) error {
+func (r *SettingsRepository) Set(ctx context.Context, key string, value any) error {
 	valBytes, err := json.Marshal(value)
 	if err != nil {
 		return err

@@ -25,25 +25,25 @@ const (
 )
 
 type ScrapeJob struct {
-	ID             uuid.UUID              `json:"id"`
-	Status         JobStatus              `json:"status"`
-	Query          string                 `json:"query"`
-	Location       string                 `json:"location"`
-	Category       string                 `json:"category"`
-	MaxResults     int                    `json:"max_results"`
-	EnrichContacts bool                   `json:"enrich_contacts"`
-	TotalScraped   int                    `json:"total_scraped"`
-	TotalEnriched  int                    `json:"total_enriched"`
-	ErrorCount     int                    `json:"error_count"`
-	ErrorMessage   string                 `json:"error_message,omitempty"`
-	Metadata       map[string]interface{} `json:"metadata,omitempty"`
-	StartedAt      *time.Time             `json:"started_at,omitempty"`
-	CompletedAt    *time.Time             `json:"completed_at,omitempty"`
-	CreatedAt      time.Time              `json:"created_at"`
-	UpdatedAt      time.Time              `json:"updated_at"`
-	Kind           JobKind                `json:"kind"`
-	KeywordID      *uuid.UUID             `json:"keyword_id,omitempty"`
-	Attempts       int                    `json:"attempts"`
+	ID             uuid.UUID      `json:"id"`
+	Status         JobStatus      `json:"status"`
+	Query          string         `json:"query"`
+	Location       string         `json:"location"`
+	Category       string         `json:"category"`
+	MaxResults     int            `json:"max_results"`
+	EnrichContacts bool           `json:"enrich_contacts"`
+	TotalScraped   int            `json:"total_scraped"`
+	TotalEnriched  int            `json:"total_enriched"`
+	ErrorCount     int            `json:"error_count"`
+	ErrorMessage   string         `json:"error_message,omitempty"`
+	Metadata       map[string]any `json:"metadata,omitempty"`
+	StartedAt      *time.Time     `json:"started_at,omitempty"`
+	CompletedAt    *time.Time     `json:"completed_at,omitempty"`
+	CreatedAt      time.Time      `json:"created_at"`
+	UpdatedAt      time.Time      `json:"updated_at"`
+	Kind           JobKind        `json:"kind"`
+	KeywordID      *uuid.UUID     `json:"keyword_id,omitempty"`
+	Attempts       int            `json:"attempts"`
 }
 
 type CreateJobRequest struct {

@@ -172,7 +172,7 @@ func (r *ScoringRepository) LeadsForScoring(ctx context.Context, ids []uuid.UUID
 		       website, primary_phone, COALESCE(emails, '[]'::jsonb), facebook_url, instagram_url, tiktok_url, linkedin_url,
 		       twitter_url, youtube_url, group_type, group_name, suggested_group_type, suggested_group_name
 		FROM business_leads`
-	var args []interface{}
+	var args []any
 	if ids != nil {
 		if len(ids) == 0 {
 			return nil, nil

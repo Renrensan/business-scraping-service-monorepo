@@ -47,7 +47,7 @@ func TestSearchPlacesTextWithCursor_SendsSameIncludedTypeOnEveryPage(t *testing.
 		if req.IncludedType != "lodging" {
 			t.Errorf("call %d: includedType = %q, want lodging", calls, req.IncludedType)
 		}
-		resp := TextSearchResponse{Places: []map[string]interface{}{{"id": "places/p"}}}
+		resp := TextSearchResponse{Places: []map[string]any{{"id": "places/p"}}}
 		if calls == 1 {
 			resp.NextPageToken = "tok2"
 		}
@@ -100,7 +100,7 @@ func TestSearchPlacesText_KeepsEarlierPagesOnLaterError(t *testing.T) {
 	c := newTestClient(t, func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		if calls == 1 {
-			_ = json.NewEncoder(w).Encode(TextSearchResponse{Places: []map[string]interface{}{{"id": "places/a"}}, NextPageToken: "t"})
+			_ = json.NewEncoder(w).Encode(TextSearchResponse{Places: []map[string]any{{"id": "places/a"}}, NextPageToken: "t"})
 			return
 		}
 		w.WriteHeader(http.StatusTooManyRequests)

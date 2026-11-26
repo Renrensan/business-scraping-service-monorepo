@@ -62,7 +62,7 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 			utils.RespondError(w, http.StatusBadRequest, "Failed to create keywords: "+err.Error())
 			return
 		}
-		utils.RespondSuccess(w, http.StatusCreated, "Keywords created", map[string]interface{}{
+		utils.RespondSuccess(w, http.StatusCreated, "Keywords created", map[string]any{
 			"count":    res.Created,
 			"existing": res.Existing,
 			"keywords": res.Keywords,
@@ -76,7 +76,7 @@ func (h *KeywordHandler) Create(w http.ResponseWriter, r *http.Request) {
 			utils.RespondError(w, http.StatusInternalServerError, "Failed to create keywords: "+err.Error())
 			return
 		}
-		utils.RespondSuccess(w, http.StatusCreated, "Keywords created", map[string]interface{}{
+		utils.RespondSuccess(w, http.StatusCreated, "Keywords created", map[string]any{
 			"count": createdCount,
 		})
 		return

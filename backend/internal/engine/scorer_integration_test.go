@@ -14,7 +14,7 @@ import (
 )
 
 // Needs a disposable Postgres: TEST_DATABASE_URL=... (wiped).
-func scoringDB(t *testing.T) (*repository.BusinessRepository, *repository.ScoringRepository, *Scorer, func(string, ...interface{})) {
+func scoringDB(t *testing.T) (*repository.BusinessRepository, *repository.ScoringRepository, *Scorer, func(string, ...any)) {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
 	if url == "" {
@@ -26,7 +26,7 @@ func scoringDB(t *testing.T) (*repository.BusinessRepository, *repository.Scorin
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	exec := func(sql string, args ...interface{}) {
+	exec := func(sql string, args ...any) {
 		if _, err := pool.Exec(ctx, sql, args...); err != nil {
 			t.Fatalf("%s: %v", sql, err)
 		}

@@ -59,7 +59,7 @@ func TestQuotaGuard(t *testing.T) {
 }
 
 func TestMetaInt(t *testing.T) {
-	m := map[string]interface{}{"a": float64(3), "b": 4, "c": "x"}
+	m := map[string]any{"a": float64(3), "b": 4, "c": "x"}
 	if metaInt(m, "a", 1) != 3 || metaInt(m, "b", 1) != 4 || metaInt(m, "c", 1) != 1 || metaInt(nil, "z", 7) != 7 {
 		t.Error("metaInt")
 	}

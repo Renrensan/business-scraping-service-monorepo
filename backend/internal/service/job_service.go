@@ -35,7 +35,7 @@ func (s *JobService) CreateJob(ctx context.Context, req model.CreateJobRequest) 
 		req.MaxReviewCountForNew = 30
 	}
 
-	meta := make(map[string]interface{})
+	meta := make(map[string]any)
 	if req.Engine != "" {
 		meta["engine"] = req.Engine
 	}
@@ -91,7 +91,7 @@ func (s *JobService) CreateJob(ctx context.Context, req model.CreateJobRequest) 
 				cat = req.Categories[i]
 			}
 
-			jobMeta := make(map[string]interface{})
+			jobMeta := make(map[string]any)
 			for k, v := range meta {
 				jobMeta[k] = v
 			}

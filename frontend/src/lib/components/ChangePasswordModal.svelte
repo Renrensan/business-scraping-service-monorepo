@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
   import { X, Key, Eye, EyeOff } from 'lucide-svelte';
@@ -40,8 +41,8 @@
       currentPassword = '';
       newPassword = '';
       confirmPassword = '';
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update password');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to update password'));
     } finally {
       isSubmitting = false;
     }

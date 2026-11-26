@@ -109,8 +109,9 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     }
 
     return (json.data !== undefined ? json.data : json) as T;
-  } catch (err: any) {
-    if (err?.status !== 401 && err?.message !== 'Unauthorized') {
+  } catch (err) {
+    const apiErr = err as Partial<ApiError> | undefined;
+    if (apiErr?.status !== 401 && apiErr?.message !== 'Unauthorized') {
       console.error(`API Error on ${url}:`, err);
     }
     throw err;
@@ -127,19 +128,19 @@ export const api = {
     return request<T>(url, { method: 'GET', ...options });
   },
 
-  post: <T>(endpoint: string, body?: any) =>
+  post: <T>(endpoint: string, body?: unknown) =>
     request<T>(endpoint, {
       method: 'POST',
       body: body instanceof FormData ? body : JSON.stringify(body)
     }),
 
-  put: <T>(endpoint: string, body?: any) =>
+  put: <T>(endpoint: string, body?: unknown) =>
     request<T>(endpoint, {
       method: 'PUT',
       body: body instanceof FormData ? body : JSON.stringify(body)
     }),
 
-  patch: <T>(endpoint: string, body?: any) =>
+  patch: <T>(endpoint: string, body?: unknown) =>
     request<T>(endpoint, {
       method: 'PATCH',
       body: body instanceof FormData ? body : JSON.stringify(body)

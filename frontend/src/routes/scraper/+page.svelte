@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { onMount, onDestroy } from 'svelte';
   import { api } from '$lib/api/client';
   import type { ScheduleInfo, ScraperKeyword, ListKeywordResponse, ScrapeJob } from '$lib/types';
@@ -39,8 +40,8 @@
 
   let copiedQueryId = $state<string | null>(null);
   let copiedTokenId = $state<string | null>(null);
-  let searchTimeout: any;
-  let pollingInterval: any = null;
+  let searchTimeout: ReturnType<typeof setTimeout> | undefined;
+  let pollingInterval: ReturnType<typeof setInterval> | null = null;
   let prevProcessingIds = new Set<string>();
 
   function formatTimeAgo(dateStr?: string): string {
@@ -196,8 +197,8 @@
       await api.post(`/api/v1/keywords/${kw.id}/reset`, {});
       toast.success(`Reset "${kw.keyword}" back to Page 1`);
       await loadKeywords(currentPage, true);
-    } catch (err: any) {
-      toast.error('Reset failed: ' + (err?.message || 'Unknown error'));
+    } catch (err) {
+      toast.error('Reset failed: ' + (errorMessage(err, 'Unknown error')));
     } finally {
       resettingKwId = null;
     }
@@ -211,8 +212,8 @@
       await api.delete(`/api/v1/keywords/${kw.id}`);
       toast.success(`Deleted "${kw.keyword}"`);
       await loadKeywords(currentPage, false);
-    } catch (err: any) {
-      toast.error('Delete failed: ' + (err?.message || 'Unknown error'));
+    } catch (err) {
+      toast.error('Delete failed: ' + (errorMessage(err, 'Unknown error')));
     }
   }
 </script>

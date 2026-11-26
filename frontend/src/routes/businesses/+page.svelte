@@ -53,7 +53,7 @@
   let showExportModal = $state(false);
   let showNewJobModal = $state(false);
 
-  let searchTimeout: any;
+  let searchTimeout: ReturnType<typeof setTimeout> | undefined;
 
   async function fetchBusinesses() {
     try {

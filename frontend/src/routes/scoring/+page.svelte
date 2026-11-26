@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
@@ -33,8 +34,8 @@
         api.get<ScoringProfile[]>('/api/v1/scoring/profiles').then((r) => r || []),
         api.get<Options>('/api/v1/scoring/options')
       ]);
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to load scoring profiles');
+    } catch (e) {
+      toast.error(errorMessage(e, 'Failed to load scoring profiles'));
     }
   }
 
@@ -77,8 +78,8 @@
       toast.success('Saved. All leads were rescored.');
       draft = null;
       await load();
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to save');
+    } catch (e) {
+      toast.error(errorMessage(e, 'Failed to save'));
     } finally {
       saving = false;
     }
@@ -90,8 +91,8 @@
       await api.delete(`/api/v1/scoring/profiles/${p.id}`);
       toast.success('Deleted');
       await load();
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to delete');
+    } catch (e) {
+      toast.error(errorMessage(e, 'Failed to delete'));
     }
   }
 
@@ -100,8 +101,8 @@
       await api.post('/api/v1/scoring/rescore', {});
       toast.success('All leads rescored');
       await load();
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to rescore');
+    } catch (e) {
+      toast.error(errorMessage(e, 'Failed to rescore'));
     }
   }
 

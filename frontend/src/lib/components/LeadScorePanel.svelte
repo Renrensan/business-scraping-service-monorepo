@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
   import type { BusinessLead, LeadScore, GroupType, Tier } from '$lib/types';
@@ -43,8 +44,8 @@
       scores = (await api.patch<LeadScore[]>(`/api/v1/businesses/${leadId}/grouping`, { group_type: groupType, group_name: groupName })) || [];
       toast.success('Group saved, score updated');
       onChanged?.();
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to save group');
+    } catch (e) {
+      toast.error(errorMessage(e, 'Failed to save group'));
     } finally {
       saving = false;
     }
@@ -58,8 +59,8 @@
       })) || [];
       toast.success('Saved');
       onChanged?.();
-    } catch (e: any) {
-      toast.error(e?.message || 'Failed to save');
+    } catch (e) {
+      toast.error(errorMessage(e, 'Failed to save'));
     }
   }
 

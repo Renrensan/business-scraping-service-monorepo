@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
+
   let {
     title,
     value,
@@ -12,7 +14,7 @@
     subtitle?: string;
     trend?: string;
     iconBg?: string;
-    icon?: any;
+    icon?: Snippet;
   } = $props();
 </script>
 

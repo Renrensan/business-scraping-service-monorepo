@@ -42,7 +42,7 @@
   let showDrawer = $state(false);
   let showExportModal = $state(false);
 
-  let searchTimeout: any;
+  let searchTimeout: ReturnType<typeof setTimeout> | undefined;
 
   async function fetchLeads() {
     try {

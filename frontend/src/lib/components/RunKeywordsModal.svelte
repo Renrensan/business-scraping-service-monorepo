@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import type { ScraperKeyword, ListKeywordResponse } from '$lib/types';
@@ -90,8 +91,8 @@
       toast.success(`Started scrape for ${selectedIds.size} keyword${selectedIds.size !== 1 ? 's' : ''}`);
       onClose();
       onDone();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to start scrape');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to start scrape'));
     } finally {
       isRunning = false;
     }

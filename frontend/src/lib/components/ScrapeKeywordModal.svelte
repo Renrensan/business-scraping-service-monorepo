@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
   import type { ScraperKeyword, KeywordScrapeResult } from '$lib/types';
@@ -17,6 +18,13 @@
   } = $props();
 
   let maxPages = $state<1 | 2 | 3 | 5>(1);
+
+  const PAGE_OPTIONS: { pages: 1 | 2 | 3 | 5; leads: string; desc: string }[] = [
+    { pages: 1, leads: '~20 leads', desc: '1 Page' },
+    { pages: 2, leads: '~40 leads', desc: '2 Pages' },
+    { pages: 3, leads: '~60 leads', desc: '3 Pages' },
+    { pages: 5, leads: '~100 leads', desc: '5 Pages' }
+  ];
   let enrichContacts = $state(true);
   let isRunning = $state(false);
   let isResetting = $state(false);
@@ -31,8 +39,8 @@
       keyword.next_page_token = '';
       keyword.status = 'ready';
       onScraped();
-    } catch (err: any) {
-      toast.error('Failed to reset: ' + (err?.message || 'Unknown error'));
+    } catch (err) {
+      toast.error('Failed to reset: ' + (errorMessage(err, 'Unknown error')));
     } finally {
       isResetting = false;
     }
@@ -51,8 +59,8 @@
       toast.success(`Scrape started in background for "${keyword.keyword}" (Page ${keyword.current_page || 1})`);
       onScraped();
       onClose();
-    } catch (err: any) {
-      toast.error('Failed to start scrape: ' + (err?.message || 'Unknown error'));
+    } catch (err) {
+      toast.error('Failed to start scrape: ' + (errorMessage(err, 'Unknown error')));
     } finally {
       isRunning = false;
     }
@@ -112,15 +120,10 @@
             How many pages to scrape in this run?
           </span>
           <div class="grid grid-cols-2 gap-2 text-xs">
-            {#each [
-              { pages: 1, leads: '~20 leads', desc: '1 Page' },
-              { pages: 2, leads: '~40 leads', desc: '2 Pages' },
-              { pages: 3, leads: '~60 leads', desc: '3 Pages' },
-              { pages: 5, leads: '~100 leads', desc: '5 Pages' }
-            ] as opt}
+            {#each PAGE_OPTIONS as opt (opt.pages)}
               <button
                 type="button"
-                onclick={() => (maxPages = opt.pages as any)}
+                onclick={() => (maxPages = opt.pages)}
                 class="p-3 rounded-xl border text-left transition cursor-pointer flex flex-col justify-between {maxPages === opt.pages ? 'bg-white text-black font-semibold border-white shadow-xs' : 'bg-black text-zinc-400 border-zinc-800 hover:border-zinc-700 hover:text-white'}"
               >
                 <div class="font-bold text-xs">{opt.desc}</div>

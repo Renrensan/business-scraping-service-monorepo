@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { api } from '$lib/api/client';
   import type { ListKeywordResponse, ScraperKeyword } from '$lib/types';
   import { toast } from 'svelte-sonner';
@@ -80,8 +81,8 @@
 
       onJobCreated();
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to start scraping job');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to start scraping job'));
     } finally {
       isSubmitting = false;
     }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
   import type { ScraperKeyword } from '$lib/types';
@@ -37,8 +38,8 @@
       toast.success('Keyword updated');
       onUpdated();
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to save changes');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to save changes'));
     } finally {
       isSaving = false;
     }
@@ -52,8 +53,8 @@
       toast.success(`Reset "${keyword.keyword}" cursor back to Page 1`);
       onUpdated();
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to reset cursor');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to reset cursor'));
     } finally {
       isResetting = false;
     }

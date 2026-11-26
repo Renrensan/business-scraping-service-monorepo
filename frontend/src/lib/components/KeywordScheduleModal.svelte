@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
   import type { ScraperKeyword, ScheduleInfo } from '$lib/types';
@@ -26,6 +27,12 @@
   let enrichContacts = $derived(scheduleInfo?.enrich_contacts ?? true);
   let isSaving = $state(false);
 
+  const PAGE_OPTIONS: { pages: 1 | 2 | 3; label: string }[] = [
+    { pages: 1, label: '1 Page (20 leads)' },
+    { pages: 2, label: '2 Pages (40 leads)' },
+    { pages: 3, label: '3 Pages (60 leads)' }
+  ];
+
   async function handleSave() {
     if (!keyword) return;
 
@@ -52,8 +59,8 @@
       toast.success(`Schedule updated for "${keyword.keyword}"`);
       onUpdated();
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to update schedule');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to update schedule'));
     } finally {
       isSaving = false;
     }
@@ -131,14 +138,10 @@
           <div class="space-y-1.5">
             <span class="block text-xs text-zinc-400 font-medium">Pages per cycle</span>
             <div class="grid grid-cols-3 gap-1.5 text-xs">
-              {#each [
-                { pages: 1, label: '1 Page (20 leads)' },
-                { pages: 2, label: '2 Pages (40 leads)' },
-                { pages: 3, label: '3 Pages (60 leads)' }
-              ] as opt}
+              {#each PAGE_OPTIONS as opt (opt.pages)}
                 <button
                   type="button"
-                  onclick={() => (maxPagesPerRun = opt.pages as any)}
+                  onclick={() => (maxPagesPerRun = opt.pages)}
                   class="p-2 rounded-xl border text-center transition cursor-pointer font-medium {maxPagesPerRun === opt.pages ? 'bg-white text-black font-semibold border-white shadow-xs' : 'bg-black text-zinc-400 border-zinc-800 hover:text-white'}"
                 >
                   {opt.label}

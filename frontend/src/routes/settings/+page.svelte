@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
@@ -49,8 +50,8 @@
       if (res) systemSettings = res;
       toast.success(n === 0 ? 'Daily request limit removed' : `Daily limit set to ${n} requests`);
       budgetInput = '';
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update budget');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to update budget'));
     } finally {
       isUpdatingBudget = false;
     }
@@ -83,8 +84,8 @@
       toast.success('Google Places API Key updated and verified!');
       apiKeyInput = '';
       loadSettings();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update API key');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to update API key'));
     } finally {
       isUpdatingApiKey = false;
     }
@@ -104,8 +105,8 @@
       toast.success('Password updated successfully');
       currentPassword = '';
       newPassword = '';
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update password');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to update password'));
     } finally {
       isUpdatingPassword = false;
     }

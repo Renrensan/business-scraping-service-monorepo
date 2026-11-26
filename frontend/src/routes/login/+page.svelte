@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { auth } from '$lib/stores/auth.svelte';
   import { toast } from 'svelte-sonner';
   import { ArrowRight, Lock, User, ShieldCheck, Eye, EyeOff } from 'lucide-svelte';
@@ -21,8 +22,8 @@
         toast.success('Authenticated session established');
         window.location.href = '/';
       }
-    } catch (err: any) {
-      toast.error(err.message || 'Authentication failed');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Authentication failed'));
     } finally {
       isLoading = false;
     }

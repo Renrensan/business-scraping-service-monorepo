@@ -1,10 +1,12 @@
 <script lang="ts">
+  import type { Snippet } from 'svelte';
+
   let {
     variant = 'default',
     children
   }: {
     variant?: 'default' | 'success' | 'warning' | 'error' | 'info' | 'purple' | 'mono';
-    children: any;
+    children: Snippet;
   } = $props();
 
   const variantClasses = {

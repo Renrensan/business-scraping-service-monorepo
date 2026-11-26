@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
   import { X, Plus, Search, MapPin, Type } from 'lucide-svelte';
@@ -46,8 +47,8 @@
   async function loadAreas() {
     try {
       areas = (await api.get<Area[]>('/api/v1/areas')) || [];
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to load areas');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to load areas'));
     }
   }
 
@@ -96,8 +97,8 @@
         toast.success(`Area "${area.name}" added`);
       }
       newAreaName = '';
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not find that place');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Could not find that place'));
     } finally {
       isAddingArea = false;
     }
@@ -132,8 +133,8 @@
       selected = new Set();
       onKeywordsAdded();
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to add keywords');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to add keywords'));
     } finally {
       isSubmitting = false;
     }
@@ -157,8 +158,8 @@
       keywordsText = '';
       onKeywordsAdded();
       onClose();
-    } catch (err: any) {
-      toast.error(err?.message || 'Failed to add keywords');
+    } catch (err) {
+      toast.error(errorMessage(err, 'Failed to add keywords'));
     } finally {
       isSubmitting = false;
     }

@@ -1,6 +1,14 @@
 import { api } from '$lib/api/client';
 import type { UserSession } from '$lib/types';
 
+/** The admin returned by POST /auth/login. */
+interface LoginUser {
+  id: string;
+  username: string;
+  email: string;
+  createdAt: string;
+}
+
 class AuthStore {
   user = $state<UserSession | null>(null);
   isLoading = $state<boolean>(true);
@@ -23,7 +31,7 @@ class AuthStore {
   async login(usernameOrEmail: string, password: string): Promise<boolean> {
     try {
       this.isLoading = true;
-      const res = await api.post<{ user: any }>('/api/v1/auth/login', {
+      const res = await api.post<{ user: LoginUser }>('/api/v1/auth/login', {
         usernameOrEmail,
         password
       });

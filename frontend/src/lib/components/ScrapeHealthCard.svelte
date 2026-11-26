@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { errorMessage } from '$lib/utils/errors';
   import { onMount } from 'svelte';
   import { api } from '$lib/api/client';
   import { Activity, AlertTriangle, PauseCircle, CheckCircle2, BellOff, Bell } from 'lucide-svelte';
@@ -34,8 +35,8 @@
     try {
       health = await api.get<Health>('/api/v1/system/scrape-health');
       loadError = '';
-    } catch (e: any) {
-      loadError = e?.message || 'Failed to load scraper health';
+    } catch (e) {
+      loadError = errorMessage(e, 'Failed to load scraper health');
     }
   }
 

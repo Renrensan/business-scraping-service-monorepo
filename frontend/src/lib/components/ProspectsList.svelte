@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { page } from '$app/state';
   import { untrack } from 'svelte';
   import { api } from '$lib/api/client';
   import { toast } from 'svelte-sonner';
@@ -10,20 +9,28 @@
   import Pagination from '$lib/components/Pagination.svelte';
   import BusinessDetailDrawer from '$lib/components/BusinessDetailDrawer.svelte';
   import ExportModal from '$lib/components/ExportModal.svelte';
-  import { Trophy, Search, Download, Star, Eye, RefreshCw } from 'lucide-svelte';
+  import { Search, Download, Star, Eye, RefreshCw } from 'lucide-svelte';
+
+  /** The ranked list of one scoring profile's leads (its "prospects"). */
+  let {
+    profile,
+    summary,
+    onScoresChanged
+  }: {
+    profile: ScoringProfile;
+    summary: ProfileSummary | null;
+    onScoresChanged?: () => void;
+  } = $props();
 
   const TIERS: Tier[] = ['hot', 'good', 'low', 'skip'];
   const OTHER_AREAS = '-'; // leads outside every named area (default cut-offs)
 
-  const profileId = $derived(page.params.id ?? '');
-  let profile = $state.raw<ScoringProfile | null>(null);
-  let summary = $state.raw<ProfileSummary | null>(null);
+  const profileId = $derived(profile.id);
   let leads = $state<BusinessLead[]>([]); // items are edited in place (contacted)
   let totalCount = $state(0);
   let totalPages = $state(1);
   let pageNo = $state(1);
   let isLoading = $state(true);
-  let notFound = $state(false);
 
   let selectedTiers = $state<Tier[]>([]);
   let area = $state('');
@@ -52,22 +59,9 @@
     return summary.areas.find((a) => (area === OTHER_AREAS ? a.name === '' : a.name === area))?.tiers ?? {};
   });
   const cutoffFor = (name: string) => {
-    const c = profile?.config.area_cutoffs?.[name] ?? profile?.config.default_cutoff;
+    const c = profile.config.area_cutoffs?.[name] ?? profile.config.default_cutoff;
     return c ? `HOT ≥${c.hot} · GOOD ≥${c.good}` : '';
   };
-
-  async function loadProfile(id: string) {
-    try {
-      notFound = false;
-      [profile, summary] = await Promise.all([
-        api.get<ScoringProfile>(`/api/v1/scoring/profiles/${id}`),
-        api.get<ProfileSummary>(`/api/v1/scoring/profiles/${id}/summary`)
-      ]);
-    } catch {
-      notFound = true;
-      profile = null;
-    }
-  }
 
   async function fetchLeads() {
     try {
@@ -124,49 +118,23 @@
     }
   }
 
-  // Reset and load when the product changes (switching in the sidebar). Only profileId is a
+  // Reset and load when the profile changes (switching in the dropdown). Only profileId is a
   // dependency: the filters are read inside untrack, or changing a filter would re-run this
   // and wipe it.
   $effect(() => {
-    const id = profileId;
+    void profileId;
     untrack(() => {
       selectedTiers = [];
       area = '';
       search = '';
       contacted = '';
       pageNo = 1;
-      loadProfile(id);
       fetchLeads();
     });
   });
 </script>
 
-{#if notFound}
-  <div class="max-w-xl mx-auto py-16 text-center text-zinc-500 text-sm">
-    This scoring profile doesn't exist. <a href="/scoring" class="text-white underline">See scoring profiles</a>
-  </div>
-{:else}
-  <div class="space-y-5">
-    <!-- Header -->
-    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-zinc-900">
-      <div>
-        <h1 class="text-2xl font-display font-light text-white tracking-[-0.04em] flex items-center gap-2">
-          <Trophy class="w-5 h-5 text-zinc-400" /> {profile?.name ?? '…'} prospects
-        </h1>
-        <p class="text-xs text-zinc-500 mt-0.5">
-          {summary?.total.toLocaleString() ?? '…'} leads ranked by {profile?.name ?? 'this profile'}
-          {#if profile?.applies_to_types.length}(only: {profile.applies_to_types.join(', ')}){/if}
-          · <a href="/scoring" class="underline hover:text-white">how it's scored</a>
-        </p>
-      </div>
-      <button
-        onclick={() => (showExport = true)}
-        class="px-3.5 py-2 rounded-xl border border-zinc-800 bg-zinc-950 text-zinc-300 hover:bg-zinc-900 hover:text-white flex items-center gap-1.5 text-xs font-medium transition cursor-pointer"
-      >
-        <Download class="w-3.5 h-3.5" /> Export
-      </button>
-    </div>
-
+<div class="space-y-5">
     <!-- Filters -->
     <div class="bg-zinc-950 border border-zinc-800/90 rounded-2xl p-4 space-y-3">
       <div class="flex flex-wrap items-center gap-2">
@@ -278,9 +246,13 @@
       </div>
       <Pagination page={pageNo} {totalPages} onPageChange={(p) => { pageNo = p; fetchLeads(); }} />
     </div>
-    <p class="text-[11px] text-zinc-600">{totalCount.toLocaleString()} shown with these filters. Sister properties (same group) are listed together.</p>
-  </div>
-{/if}
+    <div class="flex items-center justify-between text-[11px] text-zinc-600">
+      <span>{totalCount.toLocaleString()} shown with these filters. Sister properties (same group) are listed together.</span>
+      <button onclick={() => (showExport = true)} class="px-3 py-1.5 rounded-lg border border-zinc-800 text-zinc-300 hover:text-white flex items-center gap-1.5 cursor-pointer">
+        <Download class="w-3.5 h-3.5" /> Export these
+      </button>
+    </div>
+</div>
 
 <BusinessDetailDrawer
   lead={selectedLead}
@@ -288,7 +260,7 @@
   onClose={() => (showDrawer = false)}
   onToggleContacted={(l, c) => toggleContacted(l, c)}
   onStatusChange={(l, s) => setStatus(l, s)}
-  onScoreChanged={() => { fetchLeads(); loadProfile(profileId); }}
+  onScoreChanged={() => { fetchLeads(); onScoresChanged?.(); }}
 />
 
 <ExportModal isOpen={showExport} onClose={() => (showExport = false)} {filterParams} />

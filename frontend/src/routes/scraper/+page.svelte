@@ -27,7 +27,7 @@
 
   // Active Tab: Keywords vs Recent Runs
   let activeTab = $state<'keywords' | 'history'>('keywords');
-  let recentJobs = $state<ScrapeJob[]>([]);
+  let recentJobs = $state.raw<ScrapeJob[]>([]);
   let isLoadingHistory = $state(false);
 
   // Modals

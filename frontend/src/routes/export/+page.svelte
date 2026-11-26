@@ -10,7 +10,7 @@
   let search = $state('');
   let category = $state('');
   let city = $state('');
-  let availableKeywords = $state<string[]>([]);
+  let availableKeywords = $state.raw<string[]>([]);
   let selectedKeywords = $state<string[]>([]);
   let selectedStatuses = $state<LeadStatus[]>([]);
   let mobileOnly = $state(true);

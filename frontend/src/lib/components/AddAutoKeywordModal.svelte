@@ -25,7 +25,7 @@
   let term = $state('');
   let includedType = $state('');
   let typeTouched = $state(false);
-  let areas = $state<Area[]>([]);
+  let areas = $state.raw<Area[]>([]);
   let selected = $state<Set<string>>(new Set());
   let areaFilter = $state('');
   let newAreaName = $state('');

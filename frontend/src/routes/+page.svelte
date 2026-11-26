@@ -22,9 +22,9 @@
     total_scraped_ever: 0
   });
 
-  let recentJobs = $state<ScrapeJob[]>([]);
-  let recentLeads = $state<BusinessLead[]>([]);
-  let categoryStats = $state<{ category: string; count: number }[]>([]);
+  let recentJobs = $state.raw<ScrapeJob[]>([]);
+  let recentLeads = $state.raw<BusinessLead[]>([]);
+  let categoryStats = $state.raw<{ category: string; count: number }[]>([]);
   let isLoading = $state(true);
 
   async function loadDashboardData() {

@@ -19,7 +19,7 @@
   let maxResults = $state<number>(60);
   let enrichContacts = $state(true);
   let isSubmitting = $state(false);
-  let availableKeywords = $state<ScraperKeyword[]>([]);
+  let availableKeywords = $state.raw<ScraperKeyword[]>([]);
 
   $effect(() => {
     if (isOpen) {

@@ -24,8 +24,8 @@
   let isLoading = $state(true);
 
   // Dynamically loaded categories and keywords from API
-  let availableCategories = $state<string[]>([]);
-  let availableKeywords = $state<string[]>([]);
+  let availableCategories = $state.raw<string[]>([]);
+  let availableKeywords = $state.raw<string[]>([]);
 
   // Filter states
   let search = $state('');

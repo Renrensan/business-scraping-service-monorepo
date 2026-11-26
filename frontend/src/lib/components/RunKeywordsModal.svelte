@@ -19,7 +19,7 @@
     onDone: () => void;
   } = $props();
 
-  let keywords = $state<ScraperKeyword[]>([]);
+  let keywords = $state.raw<ScraperKeyword[]>([]);
   let selectedIds = $state<Set<string>>(new Set());
   let isLoading = $state(false);
   let isRunning = $state(false);

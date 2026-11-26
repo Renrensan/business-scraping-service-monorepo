@@ -26,8 +26,8 @@
   let isLoading = $state(true);
 
   // Dynamically loaded categories and keywords from API
-  let availableCategories = $state<string[]>([]);
-  let availableKeywords = $state<string[]>([]);
+  let availableCategories = $state.raw<string[]>([]);
+  let availableKeywords = $state.raw<string[]>([]);
 
   // Filter states
   let search = $state('');
@@ -40,7 +40,7 @@
   let hasWebsite = $state(false);
 
   // Ranking by a scoring profile (e.g. GuestChatPro); the choice is remembered in this browser.
-  let profiles = $state<ScoringProfile[]>([]);
+  let profiles = $state.raw<ScoringProfile[]>([]);
   let rankProfile = $state<string>('');
   let selectedTiers = $state<Tier[]>([]);
   let scoreArea = $state('');

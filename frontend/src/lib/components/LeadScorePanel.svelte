@@ -9,7 +9,7 @@
   let { leadId, onChanged }: { leadId: string; onChanged?: () => void } = $props();
 
   let lead = $state<BusinessLead | null>(null);
-  let scores = $state<LeadScore[]>([]);
+  let scores = $state.raw<LeadScore[]>([]);
   let groupType = $state<string>('');
   let groupName = $state('');
   let notes = $state<Record<string, string>>({});

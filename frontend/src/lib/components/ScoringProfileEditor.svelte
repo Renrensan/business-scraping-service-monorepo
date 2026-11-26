@@ -4,7 +4,7 @@
   import { errorMessage } from '$lib/utils/errors';
   import type { ScoringProfile, ScoringConfig } from '$lib/types';
   import { GROUP_TYPE_LABELS } from '$lib/types';
-  import { Trash2, Save } from 'lucide-svelte';
+  import { Trash2, Save, Plus } from 'lucide-svelte';
 
   export type ScoringOptions = { channels: string[]; group_types: string[]; tiers: string[]; default_config: ScoringConfig };
 
@@ -178,7 +178,7 @@
           <button type="button" onclick={() => draft && (draft.areas = draft.areas.filter((_, j) => j !== i))} class="text-zinc-500 hover:text-red-300 cursor-pointer" aria-label="Remove area"><Trash2 class="w-3.5 h-3.5" /></button>
         {/each}
       </div>
-      <button type="button" onclick={() => draft && (draft.areas = [...draft.areas, { name: '', hot: draft.config.default_cutoff.hot, good: draft.config.default_cutoff.good }])} class="text-zinc-400 hover:text-white cursor-pointer">+ Add area</button>
+      <button type="button" onclick={() => draft && (draft.areas = [...draft.areas, { name: '', hot: draft.config.default_cutoff.hot, good: draft.config.default_cutoff.good }])} class="text-zinc-400 hover:text-white cursor-pointer inline-flex items-center gap-1"><Plus class="w-3 h-3" /> Add area</button>
     </section>
 
     <div class="flex justify-end gap-3 pt-3 border-t border-zinc-900">

@@ -172,7 +172,7 @@
         class="px-4 py-2 rounded-xl bg-white hover:bg-zinc-200 text-black flex items-center gap-1.5 text-xs font-semibold shadow-sm transition cursor-pointer"
       >
         <Plus class="w-4 h-4" />
-        <span>+ Scrape</span>
+        <span>Scrape</span>
       </button>
     </div>
   </div>

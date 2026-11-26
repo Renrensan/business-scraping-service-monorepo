@@ -8,7 +8,6 @@ import (
 	"business-scraping-service/backend/internal/config"
 	"business-scraping-service/backend/internal/service"
 	"github.com/go-chi/chi/v5"
-	chiMiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 )
 
@@ -33,7 +32,7 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 
 	// Global Middlewares
 	r.Use(middleware.RequestID)
-	r.Use(chiMiddleware.RealIP)
+	r.Use(middleware.RealIP) // trusts only nginx-set X-Real-IP; chi's RealIP accepts spoofable headers
 	r.Use(middleware.Recovery)
 	r.Use(middleware.HTTPLogger)
 

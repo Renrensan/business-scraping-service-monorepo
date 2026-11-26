@@ -184,9 +184,16 @@ func (s *KeywordService) TriggerKeywordScrape(ctx context.Context, id uuid.UUID,
 		}
 
 		if fetchErr != nil {
-			slog.Error("Google Places fetch failed for keyword", "keyword", targetKw.Keyword, "error", fetchErr)
+			errMsg := fetchErr.Error()
+			if gmaps.IsQuotaError(fetchErr) {
+				// The cursor is left untouched, so the next run continues where this one stopped.
+				slog.Warn("Places API quota exhausted, keyword scrape paused", "keyword", targetKw.Keyword, "error", fetchErr)
+				errMsg = "Google Places API daily quota exceeded; try again after the quota resets. " + errMsg
+			} else {
+				slog.Error("Google Places fetch failed for keyword", "keyword", targetKw.Keyword, "error", fetchErr)
+			}
 			if s.jobRepo != nil {
-				_ = s.jobRepo.UpdateStatus(bgCtx, targetJobID, model.JobStatusFailed, 0, 0, 1, fetchErr.Error())
+				_ = s.jobRepo.UpdateStatus(bgCtx, targetJobID, model.JobStatusFailed, 0, 0, 1, errMsg)
 			}
 			_ = s.keywordRepo.SetStatus(bgCtx, targetKw.ID, model.KeywordStatusReady)
 			return
@@ -209,17 +216,21 @@ func (s *KeywordService) TriggerKeywordScrape(ctx context.Context, id uuid.UUID,
 			}
 		}
 
-		// Update Job status to Completed (number of leads retrieved in this scrape run)
-		if s.jobRepo != nil {
-			_ = s.jobRepo.UpdateStatus(bgCtx, targetJobID, model.JobStatusCompleted, len(leads), 0, 0, "")
-		}
-
 		// Update Cursor state in DB
 		newCurrentPage := curPage + pagesFetched
-		newStatus := model.KeywordStatusPaginating
-		if cycleFinished || nextToken == "" {
-			newStatus = model.KeywordStatusCompleted
+		newStatus := model.NextKeywordStatus(curToken == "", len(leads), nextToken, cycleFinished)
+		if newStatus != model.KeywordStatusPaginating {
 			nextToken = ""
+		}
+
+		// Update Job status to Completed (number of leads retrieved in this scrape run)
+		if s.jobRepo != nil {
+			jobMsg := ""
+			if newStatus == model.KeywordStatusNoResults {
+				jobMsg = "Google returned no places for this keyword; try a different wording"
+				slog.Warn("Keyword returned no results", "keyword", targetKw.Keyword)
+			}
+			_ = s.jobRepo.UpdateStatus(bgCtx, targetJobID, model.JobStatusCompleted, len(leads), 0, 0, jobMsg)
 		}
 
 		if err := s.keywordRepo.UpdateCursor(bgCtx, targetKw.ID, nextToken, newCurrentPage, len(leads), newStatus); err != nil {

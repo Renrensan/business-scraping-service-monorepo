@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -9,7 +11,11 @@ import (
 	"business-scraping-service/backend/internal/config"
 	"business-scraping-service/backend/internal/engine"
 	"business-scraping-service/backend/internal/model"
+	"business-scraping-service/backend/internal/repository"
 )
+
+// GoogleAPIKeySettingKey is where the key set on the Settings page is saved, so it survives restarts.
+const GoogleAPIKeySettingKey = "google_places_api_key"
 
 type SystemService struct {
 	cfg         *config.Config
@@ -17,10 +23,12 @@ type SystemService struct {
 	redisClient *redis.Client
 	workerPool  *engine.WorkerPool
 	scheduler   *engine.Scheduler
+	settings    *repository.SettingsRepository
 }
 
-func NewSystemService(cfg *config.Config, dbPool *pgxpool.Pool, redisClient *redis.Client, workerPool *engine.WorkerPool, scheduler *engine.Scheduler) *SystemService {
+func NewSystemService(cfg *config.Config, dbPool *pgxpool.Pool, redisClient *redis.Client, workerPool *engine.WorkerPool, scheduler *engine.Scheduler, settings *repository.SettingsRepository) *SystemService {
 	return &SystemService{
+		settings:    settings,
 		cfg:         cfg,
 		dbPool:      dbPool,
 		redisClient: redisClient,
@@ -64,9 +72,21 @@ func (s *SystemService) GetSettings() *SystemSettingsResponse {
 	}
 }
 
-func (s *SystemService) UpdateGoogleAPIKey(apiKey string) {
+// UpdateGoogleAPIKey saves the key and switches every scrape path to it. Before, it only changed the
+// in-memory config, so a restart silently fell back to the env key.
+func (s *SystemService) UpdateGoogleAPIKey(ctx context.Context, apiKey string) error {
+	apiKey = strings.TrimSpace(apiKey)
+	if apiKey == "" {
+		return fmt.Errorf("api key must not be empty")
+	}
+	if s.settings != nil {
+		if err := s.settings.Set(ctx, GoogleAPIKeySettingKey, apiKey); err != nil {
+			return fmt.Errorf("failed to save api key: %w", err)
+		}
+	}
 	s.cfg.GooglePlacesAPIKey = apiKey
 	s.workerPool.SetGoogleAPIKey(apiKey)
+	return nil
 }
 
 func (s *SystemService) GetSchedule() *engine.ScheduleInfo {

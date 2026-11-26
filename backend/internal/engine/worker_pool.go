@@ -96,9 +96,6 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 
 	// 1. Extraction Phase (Google Places API if key provided, else HTML scraper)
 	apiKey := wp.cfg.GooglePlacesAPIKey
-	if metaKey, ok := job.Metadata["api_key"].(string); ok && metaKey != "" {
-		apiKey = metaKey
-	}
 
 	engineChoice, _ := job.Metadata["engine"].(string)
 

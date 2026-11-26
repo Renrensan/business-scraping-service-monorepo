@@ -121,7 +121,7 @@ export interface ScraperKeyword {
   current_page: number;
   total_leads_scraped: number;
   last_scraped_at?: string;
-  status: 'ready' | 'processing' | 'paginating' | 'completed';
+  status: 'ready' | 'processing' | 'paginating' | 'completed' | 'no_results';
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -141,7 +141,7 @@ export interface KeywordScrapeResult {
   leads_found?: number;
   pages_traversed?: number;
   next_page_token?: string;
-  status: 'ready' | 'processing' | 'paginating' | 'completed';
+  status: 'ready' | 'processing' | 'paginating' | 'completed' | 'no_results';
   cycle_completed?: boolean;
   current_page?: number;
   total_leads_scraped?: number;

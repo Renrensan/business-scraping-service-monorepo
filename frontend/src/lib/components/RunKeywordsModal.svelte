@@ -169,8 +169,9 @@
                 <span class="shrink-0 text-[11px] px-2 py-0.5 rounded-full
                   {kw.status === 'completed' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
                    kw.status === 'paginating' ? 'bg-amber-950 text-amber-300 border border-amber-800' :
+                   kw.status === 'no_results' ? 'bg-red-950 text-red-300 border border-red-800' :
                    'bg-zinc-900 text-zinc-400 border border-zinc-800'}">
-                  {kw.status === 'paginating' ? `p.${kw.current_page}` : kw.status}
+                  {kw.status === 'paginating' ? `p.${kw.current_page}` : kw.status === 'no_results' ? 'no results' : kw.status}
                 </span>
               </button>
             {/each}

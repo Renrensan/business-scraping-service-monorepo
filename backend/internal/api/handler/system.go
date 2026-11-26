@@ -41,7 +41,10 @@ func (h *SystemHandler) UpdateAPIKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.systemSvc.UpdateGoogleAPIKey(req.ApiKey)
+	if err := h.systemSvc.UpdateGoogleAPIKey(r.Context(), req.ApiKey); err != nil {
+		utils.RespondError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	utils.RespondSuccess(w, http.StatusOK, "API Key updated successfully", h.systemSvc.GetSettings())
 }
 

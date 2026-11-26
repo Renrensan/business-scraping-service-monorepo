@@ -1,8 +1,24 @@
 package gmaps
 
 import (
+	"regexp"
 	"strings"
 )
+
+// lodgingTerms are search words Google Places misreads without a type filter: "Villa in Jimbaran, Bali"
+// returns nothing, probably because "Villa ..." is a common Indonesian street/housing-complex name and
+// the query is read as an address. Restricting to the lodging type makes these queries return places.
+// Keep this list to terms verified as broken without the filter; adding a type also narrows results.
+var lodgingTerms = regexp.MustCompile(`(?i)\b(villas?|homestays?|guest ?houses?|bungalows?)\b`)
+
+// InferIncludedType returns the Places API includedType to send with a query, or "" for none.
+// It must be deterministic: page-token requests have to repeat the first request's parameters.
+func InferIncludedType(query string) string {
+	if lodgingTerms.MatchString(query) {
+		return "lodging"
+	}
+	return ""
+}
 
 type GeoBoundingBox struct {
 	MinLat float64

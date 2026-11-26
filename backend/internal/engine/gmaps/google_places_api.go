@@ -14,7 +14,13 @@ import (
 	"business-scraping-service/backend/internal/model"
 )
 
-var ErrInvalidPageToken = errors.New("invalid or expired page token")
+var (
+	// ErrInvalidPageToken means Google rejected the page token (expired, or the request no longer matches it).
+	ErrInvalidPageToken = errors.New("invalid or expired page token")
+	// ErrQuotaExceeded means the Places API quota (usually the daily SearchTextRequest limit) is used up.
+	// Retrying is pointless until the quota resets, so callers should stop the whole run.
+	ErrQuotaExceeded = errors.New("google places api quota exceeded")
+)
 
 func IsInvalidPageTokenError(err error) bool {
 	if err == nil {
@@ -29,6 +35,12 @@ func IsInvalidPageTokenError(err error) bool {
 		strings.Contains(msg, "invalid page token")
 }
 
+func IsQuotaError(err error) bool {
+	return err != nil && errors.Is(err, ErrQuotaExceeded)
+}
+
+const textSearchFieldMask = "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.websiteUri,places.nationalPhoneNumber,places.rating,places.userRatingCount,places.businessStatus,places.googleMapsUri,places.regularOpeningHours,places.editorialSummary,places.reviews,nextPageToken"
+
 type PlacesAPIClient struct {
 	apiKey     string
 	baseURL    string
@@ -38,8 +50,8 @@ type PlacesAPIClient struct {
 
 func NewPlacesAPIClient(apiKey string) *PlacesAPIClient {
 	return &PlacesAPIClient{
-		apiKey:     apiKey,
-		baseURL:    "https://places.googleapis.com",
+		apiKey:  apiKey,
+		baseURL: "https://places.googleapis.com",
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},
@@ -48,10 +60,10 @@ func NewPlacesAPIClient(apiKey string) *PlacesAPIClient {
 }
 
 type TextSearchRequest struct {
-	TextQuery    string `json:"textQuery"`
-	IncludedType string `json:"includedType,omitempty"`
-	PageSize     int    `json:"pageSize,omitempty"`
-	PageToken    string `json:"pageToken,omitempty"`
+	TextQuery    string  `json:"textQuery"`
+	IncludedType string  `json:"includedType,omitempty"`
+	PageSize     int     `json:"pageSize,omitempty"`
+	PageToken    string  `json:"pageToken,omitempty"`
 	MinRating    float64 `json:"minRating,omitempty"`
 }
 
@@ -65,17 +77,89 @@ type TextSearchResponse struct {
 	} `json:"error,omitempty"`
 }
 
-// SearchPlacesText executes a Text Search (New) with optimized Pro-tier field mask
+// newTextSearchRequest builds the request for a query. Google requires every page request to repeat
+// the parameters of the first one, so the included type is derived from the query the same way each time.
+func newTextSearchRequest(query string, pageSize int, pageToken string) TextSearchRequest {
+	return TextSearchRequest{
+		TextQuery:    query,
+		IncludedType: InferIncludedType(query),
+		PageSize:     pageSize,
+		PageToken:    pageToken,
+	}
+}
+
+// doTextSearch sends one Text Search (New) request and turns Google's errors into typed errors:
+// ErrQuotaExceeded for quota/rate limits, ErrInvalidPageToken for rejected page tokens.
+func (c *PlacesAPIClient) doTextSearch(ctx context.Context, reqBody TextSearchRequest) (*TextSearchResponse, error) {
+	baseURL := c.baseURL
+	if baseURL == "" {
+		baseURL = "https://places.googleapis.com"
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/places:searchText", bytes.NewReader(jsonBody))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-Goog-Api-Key", c.apiKey)
+	httpReq.Header.Set("X-Goog-FieldMask", textSearchFieldMask)
+
+	resp, err := c.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call places api: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read places api response: %w", err)
+	}
+
+	var apiResp TextSearchResponse
+	if err := json.Unmarshal(respBytes, &apiResp); err != nil {
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, fmt.Errorf("%w: http 429", ErrQuotaExceeded)
+		}
+		return nil, fmt.Errorf("failed to decode places api response (http %d): %w", resp.StatusCode, err)
+	}
+
+	if apiResp.Error == nil && resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("google places api returned http %d", resp.StatusCode)
+	}
+
+	if apiResp.Error != nil {
+		status := apiResp.Error.Status
+		msg := apiResp.Error.Message
+		lowerMsg := strings.ToLower(msg)
+
+		if resp.StatusCode == http.StatusTooManyRequests || status == "RESOURCE_EXHAUSTED" || strings.Contains(lowerMsg, "quota exceeded") {
+			return nil, fmt.Errorf("%w: [%s] %s", ErrQuotaExceeded, status, msg)
+		}
+
+		isTokenErr := reqBody.PageToken != "" &&
+			(status == "INVALID_ARGUMENT" || strings.Contains(lowerMsg, "pagetoken") || strings.Contains(lowerMsg, "paging"))
+		if isTokenErr {
+			return nil, fmt.Errorf("%w: google places api [%s]: %s", ErrInvalidPageToken, status, msg)
+		}
+
+		return nil, fmt.Errorf("google places api error [%s]: %s", status, msg)
+	}
+
+	return &apiResp, nil
+}
+
+// SearchPlacesText executes a Text Search (New), following page tokens until maxResults is reached
+// or Google has no more pages (Text Search returns at most 60 places per query).
 func (c *PlacesAPIClient) SearchPlacesText(ctx context.Context, query string, maxResults int) ([]*model.BusinessLead, error) {
 	if c.apiKey == "" {
 		return nil, fmt.Errorf("google api key is not configured")
 	}
 
-	baseURL := c.baseURL
-	if baseURL == "" {
-		baseURL = "https://places.googleapis.com"
-	}
-	endpoint := baseURL + "/v1/places:searchText"
 	pageSize := 20
 	if maxResults > 0 && maxResults < 20 {
 		pageSize = maxResults
@@ -85,69 +169,37 @@ func (c *PlacesAPIClient) SearchPlacesText(ctx context.Context, query string, ma
 	pageToken := ""
 
 	for {
-		reqBody := TextSearchRequest{
-			TextQuery: query,
-			PageSize:  pageSize,
-			PageToken: pageToken,
-		}
-
-		jsonBody, err := json.Marshal(reqBody)
+		apiResp, err := c.doTextSearch(ctx, newTextSearchRequest(query, pageSize, pageToken))
 		if err != nil {
+			// Keep what earlier pages returned rather than throwing it away.
+			if len(allLeads) > 0 {
+				return allLeads, err
+			}
 			return nil, err
-		}
-
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(jsonBody))
-		if err != nil {
-			return nil, err
-		}
-
-		// Field Mask optimization (Single request extracts all Pro data + recency signals for up to 20 places)
-		fieldMask := "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.websiteUri,places.nationalPhoneNumber,places.rating,places.userRatingCount,places.businessStatus,places.googleMapsUri,places.regularOpeningHours,places.editorialSummary,places.reviews,nextPageToken"
-
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("X-Goog-Api-Key", c.apiKey)
-		httpReq.Header.Set("X-Goog-FieldMask", fieldMask)
-
-		resp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return nil, fmt.Errorf("failed to call places api: %w", err)
-		}
-		defer resp.Body.Close()
-
-		respBytes, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
-
-		var apiResp TextSearchResponse
-		if err := json.Unmarshal(respBytes, &apiResp); err != nil {
-			return nil, fmt.Errorf("failed to decode places api response: %w", err)
-		}
-
-		if apiResp.Error != nil {
-			return nil, fmt.Errorf("google places api error [%s]: %s", apiResp.Error.Status, apiResp.Error.Message)
 		}
 
 		for _, raw := range apiResp.Places {
-			lead := ParseRawPlaceData(raw)
-			allLeads = append(allLeads, lead)
+			allLeads = append(allLeads, ParseRawPlaceData(raw))
 			if maxResults > 0 && len(allLeads) >= maxResults {
 				return allLeads, nil
 			}
 		}
 
-		if apiResp.NextPageToken == "" || (maxResults > 0 && len(allLeads) >= maxResults) {
+		if apiResp.NextPageToken == "" {
 			break
 		}
 
 		pageToken = apiResp.NextPageToken
-		time.Sleep(1 * time.Second) // rate pace
+		if err := sleepCtx(ctx, c.pacing()); err != nil {
+			return allLeads, err
+		}
 	}
 
 	return allLeads, nil
 }
 
-// SearchPlacesTextWithCursor executes a paginated Text Search starting from a given pageToken, traversing up to maxPages
+// SearchPlacesTextWithCursor executes a paginated Text Search starting from a given pageToken, traversing up to maxPages.
+// It returns the leads, the token for the next page, the number of pages fetched and whether Google has no more pages.
 func (c *PlacesAPIClient) SearchPlacesTextWithCursor(ctx context.Context, query string, startPageToken string, maxPages int, pageSize int) ([]*model.BusinessLead, string, int, bool, error) {
 	if c.apiKey == "" {
 		return nil, "", 0, false, fmt.Errorf("google api key is not configured")
@@ -160,101 +212,36 @@ func (c *PlacesAPIClient) SearchPlacesTextWithCursor(ctx context.Context, query 
 		maxPages = 3
 	}
 
-	baseURL := c.baseURL
-	if baseURL == "" {
-		baseURL = "https://places.googleapis.com"
-	}
-	endpoint := baseURL + "/v1/places:searchText"
 	var allLeads []*model.BusinessLead
 	pageToken := startPageToken
 	pagesFetched := 0
 	cycleFinished := false
 	var lastNextToken string
 
-	pacing := c.pagePacing
-	if pacing <= 0 {
-		pacing = 2500 * time.Millisecond
-	}
-
 	for pagesFetched < maxPages {
-		reqBody := TextSearchRequest{
-			TextQuery: query,
-			PageSize:  pageSize,
-			PageToken: pageToken,
-		}
+		req := newTextSearchRequest(query, pageSize, pageToken)
+		apiResp, err := c.doTextSearch(ctx, req)
 
-		jsonBody, err := json.Marshal(reqBody)
-		if err != nil {
-			return nil, "", pagesFetched, false, err
-		}
-
-		httpReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(jsonBody))
-		if err != nil {
-			return nil, "", pagesFetched, false, err
-		}
-
-		fieldMask := "places.id,places.displayName,places.formattedAddress,places.location,places.types,places.primaryType,places.websiteUri,places.nationalPhoneNumber,places.rating,places.userRatingCount,places.businessStatus,places.googleMapsUri,places.regularOpeningHours,places.editorialSummary,places.reviews,nextPageToken"
-
-		httpReq.Header.Set("Content-Type", "application/json")
-		httpReq.Header.Set("X-Goog-Api-Key", c.apiKey)
-		httpReq.Header.Set("X-Goog-FieldMask", fieldMask)
-
-		resp, err := c.httpClient.Do(httpReq)
-		if err != nil {
-			return nil, "", pagesFetched, false, fmt.Errorf("failed to call places api: %w", err)
-		}
-
-		respBytes, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, "", pagesFetched, false, err
-		}
-
-		var apiResp TextSearchResponse
-		if err := json.Unmarshal(respBytes, &apiResp); err != nil {
-			return nil, "", pagesFetched, false, fmt.Errorf("failed to decode places api response: %w", err)
-		}
-
-		// If Google rejects page token, sleep pacing and retry once (for Google token propagation delay)
-		if apiResp.Error != nil && pageToken != "" {
-			time.Sleep(pacing)
-			if retryReq, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(jsonBody)); err == nil {
-				retryReq.Header.Set("Content-Type", "application/json")
-				retryReq.Header.Set("X-Goog-Api-Key", c.apiKey)
-				retryReq.Header.Set("X-Goog-FieldMask", fieldMask)
-				if retryResp, err := c.httpClient.Do(retryReq); err == nil {
-					if retryBytes, err := io.ReadAll(retryResp.Body); err == nil {
-						var retryAPIResp TextSearchResponse
-						if err := json.Unmarshal(retryBytes, &retryAPIResp); err == nil {
-							apiResp = retryAPIResp
-						}
-					}
-					retryResp.Body.Close()
-				}
+		// A fresh page token can take a moment to become valid on Google's side: wait and retry once.
+		if err != nil && errors.Is(err, ErrInvalidPageToken) {
+			if sleepErr := sleepCtx(ctx, c.pacing()); sleepErr != nil {
+				return nil, "", pagesFetched, false, sleepErr
 			}
+			apiResp, err = c.doTextSearch(ctx, req)
 		}
 
-		if apiResp.Error != nil {
-			errStatus := apiResp.Error.Status
-			errMsg := apiResp.Error.Message
-			isTokenErr := pageToken != "" && (errStatus == "INVALID_ARGUMENT" || strings.Contains(strings.ToLower(errMsg), "pagetoken") || strings.Contains(strings.ToLower(errMsg), "paging"))
-
-			// If earlier pages succeeded, gracefully treat invalid/exhausted token as end-of-results
-			if len(allLeads) > 0 && isTokenErr {
+		if err != nil {
+			// If earlier pages succeeded, treat an invalid/exhausted token as end-of-results.
+			if len(allLeads) > 0 && errors.Is(err, ErrInvalidPageToken) {
 				cycleFinished = true
 				lastNextToken = ""
 				break
 			}
-
-			if isTokenErr {
-				return nil, "", pagesFetched, false, fmt.Errorf("%w: google places api [%s]: %s", ErrInvalidPageToken, errStatus, errMsg)
-			}
-			return nil, "", pagesFetched, false, fmt.Errorf("google places api error [%s]: %s", errStatus, errMsg)
+			return nil, "", pagesFetched, false, err
 		}
 
 		for _, raw := range apiResp.Places {
-			lead := ParseRawPlaceData(raw)
-			allLeads = append(allLeads, lead)
+			allLeads = append(allLeads, ParseRawPlaceData(raw))
 		}
 
 		pagesFetched++
@@ -268,9 +255,29 @@ func (c *PlacesAPIClient) SearchPlacesTextWithCursor(ctx context.Context, query 
 		pageToken = apiResp.NextPageToken
 
 		if pagesFetched < maxPages {
-			time.Sleep(pacing)
+			if err := sleepCtx(ctx, c.pacing()); err != nil {
+				return nil, "", pagesFetched, false, err
+			}
 		}
 	}
 
 	return allLeads, lastNextToken, pagesFetched, cycleFinished, nil
+}
+
+func (c *PlacesAPIClient) pacing() time.Duration {
+	if c.pagePacing <= 0 {
+		return 2500 * time.Millisecond
+	}
+	return c.pagePacing
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
 }

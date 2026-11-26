@@ -13,7 +13,22 @@ const (
 	KeywordStatusProcessing KeywordStatus = "processing"
 	KeywordStatusPaginating KeywordStatus = "paginating"
 	KeywordStatusCompleted  KeywordStatus = "completed"
+	// KeywordStatusNoResults: Google returned nothing on the first page. Shown so admins can fix the
+	// term instead of the keyword silently looking "completed".
+	KeywordStatusNoResults KeywordStatus = "no_results"
 )
+
+// NextKeywordStatus decides a keyword's status after a run that started at the first page or continued
+// from a saved cursor.
+func NextKeywordStatus(startedFromFirstPage bool, leadsFound int, nextToken string, cycleFinished bool) KeywordStatus {
+	if startedFromFirstPage && leadsFound == 0 && (cycleFinished || nextToken == "") {
+		return KeywordStatusNoResults
+	}
+	if cycleFinished || nextToken == "" {
+		return KeywordStatusCompleted
+	}
+	return KeywordStatusPaginating
+}
 
 type ScraperKeyword struct {
 	ID                uuid.UUID     `json:"id"`

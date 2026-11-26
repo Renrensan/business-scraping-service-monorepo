@@ -38,9 +38,6 @@ func (s *JobService) CreateJob(ctx context.Context, req model.CreateJobRequest) 
 	if req.Engine != "" {
 		meta["engine"] = req.Engine
 	}
-	if req.ApiKey != "" {
-		meta["api_key"] = req.ApiKey
-	}
 	// Recency Filter
 	recency := "any"
 	if req.RecencyFilter != "" {

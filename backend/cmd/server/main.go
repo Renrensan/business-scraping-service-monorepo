@@ -82,6 +82,14 @@ func main() {
 	// 7. Auto-bootstrap Super Admin if no admin exists
 	bootstrapSuperAdmin(ctx, adminRepo, cfg)
 
+	// 7.1 A key saved on the Settings page takes precedence over the env key.
+	var savedAPIKey string
+	if err := settingsRepo.Get(ctx, service.GoogleAPIKeySettingKey, &savedAPIKey); err != nil {
+		slog.Warn("Failed to load saved Google Places API key, using env key", "error", err)
+	} else if savedAPIKey != "" {
+		cfg.GooglePlacesAPIKey = savedAPIKey
+	}
+
 	// 8. Initialize Extraction & Enrichment Engine & Scheduler
 	workerPool := engine.NewWorkerPool(cfg, jobRepo, businessRepo, redisCli)
 	scheduler := engine.NewScheduler(workerPool, jobRepo, businessRepo, settingsRepo, keywordRepo, cfg)
@@ -93,7 +101,7 @@ func main() {
 	businessSvc := service.NewBusinessService(businessRepo)
 	exportSvc := service.NewExportService(businessRepo)
 	metricsSvc := service.NewMetricsService(businessRepo, scheduler)
-	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler)
+	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler, settingsRepo)
 	keywordSvc := service.NewKeywordService(keywordRepo, businessRepo, jobRepo, settingsRepo, cfg)
 
 	// 10. Initialize Handlers

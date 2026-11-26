@@ -104,6 +104,8 @@
                 } else {
                   toast.error(`"${kw.keyword}" failed: ${errMsg}`, { duration: 7000 });
                 }
+              } else if (kw.status === 'no_results') {
+                toast.error(`"${kw.keyword}" returned no results from Google. Try a different wording (e.g. add "private" or the business type).`, { duration: 9000 });
               } else {
                 toast.success(`Scrape finished for "${kw.keyword}"! Total leads: ${kw.total_leads_scraped.toLocaleString()} (Page ${kw.current_page || 1})`);
               }
@@ -378,6 +380,10 @@
                           {/if}
                         </button>
                       </div>
+                    {:else if kw.status === 'no_results'}
+                      <span class="inline-flex items-center gap-1 text-[11px] text-red-300 font-medium bg-red-950/40 px-2.5 py-0.5 rounded-full border border-red-900/60" title="Google returned no places for this keyword. Try different wording.">
+                        <span>No Results</span>
+                      </span>
                     {:else if kw.status === 'completed'}
                       <span class="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-medium bg-emerald-950/40 px-2.5 py-0.5 rounded-full border border-emerald-900/60">
                         <CheckCircle2 class="w-3 h-3 text-emerald-400" />

@@ -276,6 +276,15 @@ func (s *Scheduler) runKeywordScrapes(
 			}
 		}
 
+		if err != nil && gmaps.IsQuotaError(err) {
+			// Every remaining keyword would fail the same way: stop the run and keep all cursors as they are.
+			slog.Warn("Places API quota exhausted, stopping scheduled run", "keyword", kw.Keyword, "error", err)
+			if s.jobRepo != nil {
+				_ = s.jobRepo.UpdateStatus(ctx, job.ID, model.JobStatusFailed, 0, 0, 1, "Google Places API daily quota exceeded; remaining keywords skipped until the next run. "+err.Error())
+			}
+			break
+		}
+
 		if err != nil {
 			slog.Error("Failed keyword scrape via scheduler", "keyword", kw.Keyword, "error", err)
 			if s.jobRepo != nil {
@@ -302,9 +311,8 @@ func (s *Scheduler) runKeywordScrapes(
 
 		// Update cursor state in DB
 		newCurrentPage := curPage + pagesFetched
-		newStatus := model.KeywordStatusPaginating
-		if cycleFinished || nextToken == "" {
-			newStatus = model.KeywordStatusCompleted
+		newStatus := model.NextKeywordStatus(curToken == "", leadsFound, nextToken, cycleFinished)
+		if newStatus != model.KeywordStatusPaginating {
 			nextToken = ""
 		}
 
@@ -312,7 +320,12 @@ func (s *Scheduler) runKeywordScrapes(
 
 		// Mark job completed
 		if s.jobRepo != nil {
-			_ = s.jobRepo.UpdateStatus(ctx, job.ID, model.JobStatusCompleted, leadsFound, 0, 0, "")
+			jobMsg := ""
+			if newStatus == model.KeywordStatusNoResults {
+				jobMsg = "Google returned no places for this keyword; try a different wording"
+				slog.Warn("Keyword returned no results", "keyword", kw.Keyword)
+			}
+			_ = s.jobRepo.UpdateStatus(ctx, job.ID, model.JobStatusCompleted, leadsFound, 0, 0, jobMsg)
 		}
 
 		// Background enrichment

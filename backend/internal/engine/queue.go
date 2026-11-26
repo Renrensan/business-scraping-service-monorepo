@@ -153,6 +153,7 @@ type JobQueue struct {
 	wp       *WorkerPool
 	quota    *QuotaGuard
 	opts     QueueOptions
+	alerts   *Alerter
 
 	wake       chan struct{}
 	softCtx    context.Context // cancelled to stop claiming new jobs
@@ -181,6 +182,12 @@ func NewJobQueue(jobs *repository.JobRepository, keywords *repository.KeywordRep
 }
 
 func (q *JobQueue) Quota() *QuotaGuard { return q.quota }
+
+// SetAlerter sets where operational alerts go.
+func (q *JobQueue) SetAlerter(a *Alerter) { q.alerts = a }
+
+// Alerts returns the alerter (may be nil).
+func (q *JobQueue) Alerts() *Alerter { return q.alerts }
 
 // Start recovers work left by a previous process and starts the workers.
 func (q *JobQueue) Start() {
@@ -376,19 +383,30 @@ func (q *JobQueue) execute(job *model.ScrapeJob) {
 	}
 
 	var runErr error
+	var kwResult *KeywordRunResult
+	failed := false
 	switch job.Kind {
 	case model.JobKindKeyword:
-		runErr = q.runKeywordJob(ctx, job)
+		kwResult, runErr = q.runKeywordJob(ctx, job)
+		failed = runErr != nil && (kwResult == nil || kwResult.Status == "")
 	default:
-		_, runErr = q.wp.processJob(ctx, job)
+		var status model.JobStatus
+		status, runErr = q.wp.processJob(ctx, job)
+		failed = status == model.JobStatusFailed
 	}
 
-	if runErr != nil && gmaps.IsQuotaError(runErr) {
+	interrupted := runErr != nil && q.hardCtx.Err() != nil
+	switch {
+	case runErr != nil && gmaps.IsQuotaError(runErr):
 		q.onQuotaExhausted()
+	case failed && runErr != nil && !interrupted:
+		q.alerts.Notify("job_failed", fmt.Sprintf("Scrape of %q failed: %v", job.Query, runErr))
+	case kwResult != nil && kwResult.Status == model.KeywordStatusNoResults:
+		q.alerts.Notify("no_results", fmt.Sprintf("Keyword %q returned no places from Google; try a different term or type.", job.Query))
 	}
 
 	// Interrupted by shutdown (not by its own timeout): put it back so it runs after the restart.
-	if runErr != nil && q.hardCtx.Err() != nil {
+	if interrupted {
 		wctx, wcancel := writeCtx()
 		defer wcancel()
 		if err := q.jobs.Requeue(wctx, job.ID, "Interrupted by a restart; queued again"); err != nil {
@@ -419,23 +437,22 @@ func (q *JobQueue) failWithoutRunning(job *model.ScrapeJob, msg string) {
 	}
 }
 
-func (q *JobQueue) runKeywordJob(ctx context.Context, job *model.ScrapeJob) error {
+func (q *JobQueue) runKeywordJob(ctx context.Context, job *model.ScrapeJob) (*KeywordRunResult, error) {
 	if job.KeywordID == nil {
 		q.failWithoutRunning(job, "Keyword job has no keyword")
-		return nil
+		return nil, nil
 	}
 	kw, err := q.keywords.GetByID(ctx, *job.KeywordID)
 	if err != nil || kw == nil {
 		q.failWithoutRunning(job, "Keyword no longer exists")
-		return nil
+		return nil, nil
 	}
 	opts := KeywordRunOptions{
 		MaxPages: metaInt(job.Metadata, "max_pages", 1),
 		PageSize: metaInt(job.Metadata, "page_size", 20),
 		Enrich:   job.EnrichContacts,
 	}
-	_, err = q.wp.KeywordRunner().Run(ctx, kw, job.ID, opts)
-	return err
+	return q.wp.KeywordRunner().Run(ctx, kw, job.ID, opts)
 }
 
 // onQuotaExhausted pauses Places scraping until the quota resets and cancels queued jobs that would
@@ -453,6 +470,7 @@ func (q *JobQueue) onQuotaExhausted() {
 		slog.Error("Failed to restore keywords after quota error", "error", err)
 	}
 	slog.Warn("Places API quota exhausted: scraping paused", "until", until, "cancelled_jobs", n)
+	q.alerts.Notify("quota", fmt.Sprintf("Google Places quota or daily budget reached. Scraping paused until %s; %d queued jobs cancelled.", until.Format("2006-01-02 15:04 MST"), n))
 }
 
 // ---------------------------------------------------------------------------------------------

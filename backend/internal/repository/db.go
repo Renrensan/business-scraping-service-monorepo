@@ -2,16 +2,26 @@ package repository
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"fmt"
+	"io/fs"
+	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-//go:embed schema.sql
-var initSchemaSQL string
+// Migrations are numbered SQL files in migrations/, applied once each, in order, and recorded in
+// schema_migrations. To change the schema, add a new file with the next number; never edit one that
+// has been deployed.
+//
+//go:embed migrations/*.sql
+var migrationFiles embed.FS
+
+// migrationLockID serialises migrations when several instances start at once.
+const migrationLockID = 7243518901
 
 func InitDB(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	config, err := pgxpool.ParseConfig(databaseURL)
@@ -42,16 +52,74 @@ func InitDB(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 }
 
 func runMigrations(ctx context.Context, pool *pgxpool.Pool) error {
-	queries := strings.Split(initSchemaSQL, ";")
-	for _, query := range queries {
-		q := strings.TrimSpace(query)
-		if q == "" {
-			continue
-		}
-		if _, err := pool.Exec(ctx, q); err != nil {
-			return fmt.Errorf("migration query error: %w", err)
-		}
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Release()
+
+	if _, err := conn.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrationLockID); err != nil {
+		return fmt.Errorf("failed to take migration lock: %w", err)
+	}
+	defer func() {
+		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationLockID)
+	}()
+
+	if _, err := conn.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS schema_migrations (
+			version VARCHAR(255) PRIMARY KEY,
+			applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		)`); err != nil {
+		return fmt.Errorf("failed to create schema_migrations: %w", err)
 	}
 
+	applied := map[string]bool{}
+	rows, err := conn.Query(ctx, `SELECT version FROM schema_migrations`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var v string
+		if err := rows.Scan(&v); err != nil {
+			rows.Close()
+			return err
+		}
+		applied[v] = true
+	}
+	rows.Close()
+
+	names, err := fs.Glob(migrationFiles, "migrations/*.sql")
+	if err != nil {
+		return err
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		version := strings.TrimSuffix(strings.TrimPrefix(name, "migrations/"), ".sql")
+		if applied[version] {
+			continue
+		}
+		body, err := migrationFiles.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		tx, err := conn.Begin(ctx)
+		if err != nil {
+			return err
+		}
+		// Executed as one multi-statement script (simple protocol), inside a transaction.
+		if _, err := tx.Exec(ctx, string(body)); err != nil {
+			_ = tx.Rollback(ctx)
+			return fmt.Errorf("migration %s failed: %w", version, err)
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO schema_migrations (version) VALUES ($1)`, version); err != nil {
+			_ = tx.Rollback(ctx)
+			return fmt.Errorf("failed to record migration %s: %w", version, err)
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("failed to commit migration %s: %w", version, err)
+		}
+		slog.Info("Applied database migration", "version", version)
+	}
 	return nil
 }

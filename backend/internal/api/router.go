@@ -108,6 +108,7 @@ func CreateRouter(cfg *config.Config, h *Handlers, s *Services) http.Handler {
 			protected.Get("/system/settings", h.System.GetSettings)
 			protected.Post("/system/api-key", h.System.UpdateAPIKey)
 			protected.Post("/system/places-budget", h.System.UpdatePlacesBudget)
+			protected.Get("/system/scrape-health", h.System.GetScrapeHealth)
 			protected.Get("/system/schedule", h.System.GetSchedule)
 			protected.Post("/system/schedule", h.System.UpdateSchedule)
 			protected.Post("/system/trigger-scrape", h.System.TriggerImmediateScrape)

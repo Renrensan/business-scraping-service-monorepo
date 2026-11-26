@@ -119,6 +119,11 @@ func main() {
 	jobQueue := engine.NewJobQueue(jobRepo, keywordRepo, businessRepo, workerPool, quota, engine.QueueOptions{
 		Workers: cfg.MaxConcurrentScrapers,
 	})
+	alerter := engine.NewAlerter(cfg.EvolutionAPIURL, cfg.EvolutionAPIKey, cfg.EvolutionInstance, cfg.AlertWhatsAppNumber)
+	if alerter.Enabled() {
+		slog.Info("WhatsApp alerts enabled", "instance", cfg.EvolutionInstance)
+	}
+	jobQueue.SetAlerter(alerter)
 	jobQueue.Start()
 
 	scheduler := engine.NewScheduler(workerPool, jobQueue, schedulerStateRepo, settingsRepo, keywordRepo, cfg)
@@ -130,7 +135,7 @@ func main() {
 	businessSvc := service.NewBusinessService(businessRepo)
 	exportSvc := service.NewExportService(businessRepo)
 	metricsSvc := service.NewMetricsService(businessRepo, scheduler)
-	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler, settingsRepo, quota)
+	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler, settingsRepo, quota, jobQueue, jobRepo, keywordRepo)
 	keywordSvc := service.NewKeywordService(keywordRepo, areaRepo, jobRepo, jobQueue, workerPool)
 
 	// 10. Initialize Handlers

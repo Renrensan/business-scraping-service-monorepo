@@ -29,10 +29,16 @@ type SystemService struct {
 	scheduler   *engine.Scheduler
 	settings    *repository.SettingsRepository
 	quota       *engine.QuotaGuard
+	queue       *engine.JobQueue
+	jobs        *repository.JobRepository
+	keywords    *repository.KeywordRepository
 }
 
-func NewSystemService(cfg *config.Config, dbPool *pgxpool.Pool, redisClient *redis.Client, workerPool *engine.WorkerPool, scheduler *engine.Scheduler, settings *repository.SettingsRepository, quota *engine.QuotaGuard) *SystemService {
+func NewSystemService(cfg *config.Config, dbPool *pgxpool.Pool, redisClient *redis.Client, workerPool *engine.WorkerPool, scheduler *engine.Scheduler, settings *repository.SettingsRepository, quota *engine.QuotaGuard, queue *engine.JobQueue, jobs *repository.JobRepository, keywords *repository.KeywordRepository) *SystemService {
 	return &SystemService{
+		queue:       queue,
+		jobs:        jobs,
+		keywords:    keywords,
 		quota:       quota,
 		settings:    settings,
 		cfg:         cfg,
@@ -216,4 +222,75 @@ func (s *SystemService) SetPlacesBudget(ctx context.Context, n int) error {
 		s.quota.Clear(ctx)
 	}
 	return nil
+}
+
+// ScrapeHealth is the health panel: queue, recent outcomes, quota/budget, scheduler and keywords.
+type ScrapeHealth struct {
+	Status              string                    `json:"status"` // ok | warning | paused
+	Issues              []string                  `json:"issues"`
+	Jobs                *repository.JobHealth     `json:"jobs"`
+	Keywords            *repository.KeywordHealth `json:"keywords"`
+	QuotaPausedUntil    *time.Time                `json:"quota_paused_until,omitempty"`
+	QuotaResetAt        time.Time                 `json:"quota_reset_at"`
+	PlacesRequestsToday int                       `json:"places_requests_today"`
+	PlacesDailyBudget   int                       `json:"places_daily_budget"`
+	AutoEnabled         bool                      `json:"auto_enabled"`
+	NextRunAt           time.Time                 `json:"next_run_at"`
+	LastRunAt           *time.Time                `json:"last_run_at,omitempty"`
+	HasAPIKey           bool                      `json:"has_api_key"`
+	AlertsEnabled       bool                      `json:"alerts_enabled"`
+}
+
+func (s *SystemService) ScrapeHealth(ctx context.Context) (*ScrapeHealth, error) {
+	jobs, err := s.jobs.Health(ctx)
+	if err != nil {
+		return nil, err
+	}
+	kws, err := s.keywords.Health(ctx)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	h := &ScrapeHealth{
+		Status:              "ok",
+		Issues:              []string{},
+		Jobs:                jobs,
+		Keywords:            kws,
+		QuotaResetAt:        engine.NextQuotaReset(now),
+		PlacesRequestsToday: s.placesRequestsToday(),
+		PlacesDailyBudget:   s.workerPool.PlacesBudget(),
+		HasAPIKey:           s.workerPool.APIKey() != "",
+		AlertsEnabled:       s.queue != nil && s.queue.Alerts().Enabled(),
+	}
+	if s.scheduler != nil {
+		info := s.scheduler.GetScheduleInfo()
+		h.AutoEnabled, h.NextRunAt, h.LastRunAt = info.AutoEnabled, info.NextRunAt, info.LastRunAt
+	}
+	if until, paused := s.quota.PausedUntil(now); paused {
+		h.QuotaPausedUntil = &until
+		h.Status = "paused"
+		h.Issues = append(h.Issues, "Google Places quota or daily budget reached: scraping paused until "+until.Format("2006-01-02 15:04 MST"))
+	}
+	warn := func(msg string) {
+		if h.Status == "ok" {
+			h.Status = "warning"
+		}
+		h.Issues = append(h.Issues, msg)
+	}
+	if !h.HasAPIKey {
+		warn("No Google Places API key configured")
+	}
+	if jobs.Failed24h > 0 {
+		warn(fmt.Sprintf("%d job(s) failed in the last 24 hours", jobs.Failed24h))
+	}
+	if kws.NoResults > 0 {
+		warn(fmt.Sprintf("%d keyword(s) return no results: check their wording or type", kws.NoResults))
+	}
+	if h.PlacesDailyBudget > 0 && h.PlacesRequestsToday*10 >= h.PlacesDailyBudget*9 && h.QuotaPausedUntil == nil {
+		warn(fmt.Sprintf("Daily request budget almost used: %d of %d", h.PlacesRequestsToday, h.PlacesDailyBudget))
+	}
+	if h.AutoEnabled && kws.Active == 0 {
+		warn("Auto scraping is on but no keyword is active, so every keyword is run")
+	}
+	return h, nil
 }

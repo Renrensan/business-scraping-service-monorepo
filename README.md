@@ -24,3 +24,31 @@ mise run db-run-dev
 # 2. Run backend & frontend concurrently
 mise run dev
 ```
+
+## Operations
+
+**Keywords.** "By area" keywords (`villa · Canggu`) search a term inside an area's rectangle with an
+optional Google Places type. Google returns at most 60 places per search, so an area that hits 60 is
+split into four smaller cells (up to 3 levels) and the cycle continues over later runs. "Plain text"
+keywords are sent to Google as typed and stop at 60. Keywords whose runs find nothing new are scheduled
+less often (1, 2, 4 … 30 days); the Scrape button ignores that.
+
+**Jobs survive restarts.** Every scrape is a row in `scrape_jobs` claimed by a worker. On deploy,
+running jobs get `SHUTDOWN_GRACE_SECONDS` to finish and are otherwise queued again; jobs of a process
+that died are found by their stale heartbeat and retried (up to 3 attempts).
+
+**Quota and budget.** When Google's daily quota or the daily request limit (Settings) is reached,
+scraping pauses until Google's reset (midnight Pacific time) and queued jobs are cancelled. Saving a
+new API key or changing the limit lifts the pause. The dashboard's *Scraper health* card shows the
+queue, failures, quota and schedule.
+
+**Alerts.** Set `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_INSTANCE` and
+`ALERT_WHATSAPP_NUMBER` to get WhatsApp messages when the quota is reached, a job fails or a keyword
+returns no results (each at most once an hour). Without them, alerts are only logged.
+
+**Database migrations** live in `backend/internal/repository/migrations/` and run on startup, once
+each, recorded in `schema_migrations`. To change the schema, add a file with the next number; never
+edit one that has been deployed.
+
+**Tests.** `mise run test` (image builds run it first). Database tests run when `TEST_DATABASE_URL`
+points to a disposable Postgres; CI runs them on every push.

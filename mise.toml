@@ -48,9 +48,10 @@ description = "Build both backend and frontend"
 depends = ["build-backend", "build-frontend"]
 
 # TEST TASKS
+# Image builds depend on these, so a failing build is never pushed.
 [tasks.test-backend]
-description = "Run Go backend unit test suite"
-run = "cd backend && go test ./..."
+description = "Vet and test the Go backend (set TEST_DATABASE_URL to include database tests)"
+run = "cd backend && go vet ./... && go test ./..."
 
 [tasks.test-frontend]
 description = "Run SvelteKit typecheck and diagnostics"
@@ -64,13 +65,13 @@ depends = ["test-backend", "test-frontend"]
 [tasks.docker-build-backend]
 description = "Build Linux Docker image for Go backend"
 run = "cd backend && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags=\"-w -s\" -o bin/server ./cmd/server/main.go && docker build --platform linux/amd64 -t renrensan/momos-scraper-backend:latest ."
-depends = ["check-docker"]
+depends = ["check-docker", "test-backend"]
 
 
 [tasks.docker-build-frontend]
 description = "Build Linux Docker image for Svelte frontend"
 run = "cd frontend && pnpm build && docker build --platform linux/amd64 -t renrensan/momos-scraper-frontend:latest ."
-depends = ["check-docker"]
+depends = ["check-docker", "test-frontend"]
 
 
 [tasks.docker-build]

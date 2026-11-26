@@ -410,3 +410,24 @@ func (r *KeywordRepository) CycleResults(ctx context.Context, keywordID uuid.UUI
 	err := r.db.QueryRow(ctx, `SELECT COALESCE(SUM(results), 0) FROM keyword_cells WHERE keyword_id = $1 AND status <> 'split'`, keywordID).Scan(&n)
 	return n, err
 }
+
+// KeywordHealth counts keywords that need attention.
+type KeywordHealth struct {
+	Total     int `json:"total"`
+	Active    int `json:"active"`
+	NoResults int `json:"no_results"`
+	BackedOff int `json:"backed_off"`
+	Running   int `json:"running"`
+}
+
+func (r *KeywordRepository) Health(ctx context.Context) (*KeywordHealth, error) {
+	h := &KeywordHealth{}
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*),
+		       COUNT(*) FILTER (WHERE is_active),
+		       COUNT(*) FILTER (WHERE status = 'no_results'),
+		       COUNT(*) FILTER (WHERE next_eligible_at > NOW()),
+		       COUNT(*) FILTER (WHERE status = 'processing')
+		FROM scraper_keywords`).Scan(&h.Total, &h.Active, &h.NoResults, &h.BackedOff, &h.Running)
+	return h, err
+}

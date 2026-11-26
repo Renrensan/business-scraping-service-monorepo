@@ -44,6 +44,12 @@ func TestMigrations_OnProductionSnapshot(t *testing.T) {
 		t.Errorf("%d active keyword jobs have no keyword", orphanActive)
 	}
 
+	var versions int
+	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&versions)
+	if versions < 4 {
+		t.Errorf("schema_migrations has %d versions", versions)
+	}
+
 	var stateRows int
 	_ = pool.QueryRow(ctx, `SELECT COUNT(*) FROM scheduler_state`).Scan(&stateRows)
 	if stateRows != 1 {

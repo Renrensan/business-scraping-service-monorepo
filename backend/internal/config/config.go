@@ -33,6 +33,16 @@ type Config struct {
 	// ShutdownGrace is how long running jobs may keep going after SIGTERM before they are requeued.
 	// Keep it below the container's stop timeout (docker compose stop_grace_period).
 	ShutdownGrace time.Duration
+	// EnableWebScraper allows the experimental Google Maps HTML scraper (used for engine "web", or
+	// when no API key is set). It parses Maps HTML with a regex and breaks silently when Google
+	// changes the page, so it is off by default.
+	EnableWebScraper bool
+
+	// WhatsApp alerts through Evolution API; all four must be set, otherwise alerts are only logged.
+	EvolutionAPIURL     string
+	EvolutionAPIKey     string
+	EvolutionInstance   string
+	AlertWhatsAppNumber string
 }
 
 func LoadConfig() (*Config, error) {
@@ -85,6 +95,11 @@ func LoadConfig() (*Config, error) {
 		SuperAdminPassword:     superAdminPassword,
 		GooglePlacesBaseURL:    cleanStr(getEnv("GOOGLE_PLACES_BASE_URL", "")),
 		ShutdownGrace:          time.Duration(getEnvInt("SHUTDOWN_GRACE_SECONDS", 25)) * time.Second,
+		EnableWebScraper:       strings.EqualFold(cleanStr(getEnv("ENABLE_WEB_SCRAPER", "false")), "true"),
+		EvolutionAPIURL:        cleanStr(getEnv("EVOLUTION_API_URL", "")),
+		EvolutionAPIKey:        cleanStr(getEnv("EVOLUTION_API_KEY", "")),
+		EvolutionInstance:      cleanStr(getEnv("EVOLUTION_INSTANCE", "")),
+		AlertWhatsAppNumber:    cleanStr(getEnv("ALERT_WHATSAPP_NUMBER", "")),
 		MaxConcurrentScrapers:  maxScrapers,
 		MaxConcurrentEnrichers: maxEnrichers,
 		DefaultUserAgent:       defaultUA,

@@ -261,3 +261,54 @@ func (r *JobRepository) QueueStats(ctx context.Context) (pending, processing int
 		FROM scrape_jobs WHERE status IN ('PENDING', 'PROCESSING')`).Scan(&pending, &processing)
 	return pending, processing, err
 }
+
+// JobHealth summarises recent job outcomes for the health panel.
+type JobHealth struct {
+	Pending        int             `json:"pending"`
+	Processing     int             `json:"processing"`
+	Completed24h   int             `json:"completed_24h"`
+	Failed24h      int             `json:"failed_24h"`
+	Cancelled24h   int             `json:"cancelled_24h"`
+	NewLeads24h    int             `json:"new_leads_24h"`
+	RecentFailures []RecentFailure `json:"recent_failures"`
+}
+
+type RecentFailure struct {
+	Query        string     `json:"query"`
+	Status       string     `json:"status"`
+	ErrorMessage string     `json:"error_message"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+}
+
+func (r *JobRepository) Health(ctx context.Context) (*JobHealth, error) {
+	h := &JobHealth{RecentFailures: []RecentFailure{}}
+	err := r.db.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE status = 'PENDING'),
+		       COUNT(*) FILTER (WHERE status = 'PROCESSING'),
+		       COUNT(*) FILTER (WHERE status = 'COMPLETED' AND completed_at > NOW() - INTERVAL '24 hours'),
+		       COUNT(*) FILTER (WHERE status = 'FAILED' AND completed_at > NOW() - INTERVAL '24 hours'),
+		       COUNT(*) FILTER (WHERE status = 'CANCELLED' AND completed_at > NOW() - INTERVAL '24 hours'),
+		       (SELECT COUNT(*) FROM business_leads WHERE created_at > NOW() - INTERVAL '24 hours')
+		FROM scrape_jobs`).Scan(&h.Pending, &h.Processing, &h.Completed24h, &h.Failed24h, &h.Cancelled24h, &h.NewLeads24h)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT query, status, COALESCE(error_message, ''), completed_at
+		FROM scrape_jobs
+		WHERE status IN ('FAILED', 'CANCELLED') OR (status = 'COMPLETED' AND COALESCE(error_message, '') <> '')
+		ORDER BY COALESCE(completed_at, updated_at) DESC
+		LIMIT 5`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f RecentFailure
+		if err := rows.Scan(&f.Query, &f.Status, &f.ErrorMessage, &f.FinishedAt); err != nil {
+			return nil, err
+		}
+		h.RecentFailures = append(h.RecentFailures, f)
+	}
+	return h, rows.Err()
+}

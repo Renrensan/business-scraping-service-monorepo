@@ -190,3 +190,12 @@ func (h *SystemHandler) UpdatePlacesBudget(w http.ResponseWriter, r *http.Reques
 	}
 	utils.RespondSuccess(w, http.StatusOK, "Daily budget updated", h.systemSvc.GetSettings())
 }
+
+func (h *SystemHandler) GetScrapeHealth(w http.ResponseWriter, r *http.Request) {
+	health, err := h.systemSvc.ScrapeHealth(r.Context())
+	if err != nil {
+		utils.RespondError(w, http.StatusInternalServerError, "Failed to load scrape health: "+err.Error())
+		return
+	}
+	utils.RespondJSON(w, http.StatusOK, health)
+}

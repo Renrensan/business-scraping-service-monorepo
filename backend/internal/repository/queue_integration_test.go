@@ -272,3 +272,28 @@ func TestLeads_ListPendingEnrichment(t *testing.T) {
 		t.Errorf("got %d leads: %+v", len(got), got)
 	}
 }
+
+func TestMigrations_AppliedOnceAndRecorded(t *testing.T) {
+	pool := testDB(t) // has run migrations twice
+	ctx := context.Background()
+	var n int
+	if err := pool.QueryRow(ctx, `SELECT COUNT(*) FROM schema_migrations`).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	names, _ := migrationFiles.ReadDir("migrations")
+	if n != len(names) {
+		t.Errorf("recorded %d migrations, have %d files", n, len(names))
+	}
+	// Concurrent startups must not race.
+	var wg sync.WaitGroup
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := runMigrations(ctx, pool); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	wg.Wait()
+}

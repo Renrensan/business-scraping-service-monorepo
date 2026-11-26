@@ -3,6 +3,7 @@
   import { api } from '$lib/api/client';
   import type { OverviewMetrics, ScrapeJob, BusinessLead } from '$lib/types';
   import StatCard from '$lib/components/StatCard.svelte';
+  import ScrapeHealthCard from '$lib/components/ScrapeHealthCard.svelte';
   import Badge from '$lib/components/Badge.svelte';
   import { 
     Building2, Mail, Phone, Zap, 
@@ -73,6 +74,8 @@
       </button>
     </div>
   </div>
+
+  <ScrapeHealthCard />
 
   <!-- KPI Grid -->
   <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

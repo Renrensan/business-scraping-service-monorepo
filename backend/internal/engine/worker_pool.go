@@ -159,12 +159,16 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) (mod
 	apiKey := wp.APIKey()
 	engineChoice, _ := job.Metadata["engine"].(string)
 
-	if engineChoice != "web" && apiKey != "" {
+	useWeb := wp.cfg.EnableWebScraper && (engineChoice == "web" || apiKey == "")
+	switch {
+	case useWeb:
+		slog.Info("Executing extraction via experimental Maps Web Scraper", "query", searchQuery, "job_id", job.ID)
+		leads, err = wp.webClient.SearchPlaces(ctx, searchQuery, job.MaxResults)
+	case apiKey != "":
 		slog.Info("Executing extraction via Google Places API (New)", "query", searchQuery, "job_id", job.ID)
 		leads, err = wp.newPlaces(apiKey).SearchPlacesText(ctx, searchQuery, job.MaxResults)
-	} else {
-		slog.Info("Executing extraction via Maps Web Scraper", "query", searchQuery, "job_id", job.ID)
-		leads, err = wp.webClient.SearchPlaces(ctx, searchQuery, job.MaxResults)
+	default:
+		err = ErrNoAPIKey
 	}
 
 	if err != nil {

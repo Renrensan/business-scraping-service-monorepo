@@ -2,14 +2,13 @@ package engine
 
 import (
 	"context"
-	"fmt"
+	"github.com/google/uuid"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
 	"business-scraping-service/backend/internal/config"
-	"business-scraping-service/backend/internal/engine/enrichment"
 	"business-scraping-service/backend/internal/engine/gmaps"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
@@ -23,7 +22,6 @@ type Scheduler struct {
 	settingsRepo   *repository.SettingsRepository
 	keywordRepo    *repository.KeywordRepository
 	cfg            *config.Config
-	crawler        *enrichment.Crawler
 	interval       time.Duration
 	nextRunAt      time.Time
 	lastRunAt      *time.Time
@@ -50,11 +48,6 @@ func NewScheduler(
 		nextMidnight = nextMidnight.Add(24 * time.Hour)
 	}
 
-	userAgent := "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-	if cfg != nil && cfg.DefaultUserAgent != "" {
-		userAgent = cfg.DefaultUserAgent
-	}
-
 	s := &Scheduler{
 		workerPool:     workerPool,
 		jobRepo:        jobRepo,
@@ -62,7 +55,6 @@ func NewScheduler(
 		settingsRepo:   settingsRepo,
 		keywordRepo:    keywordRepo,
 		cfg:            cfg,
-		crawler:        enrichment.NewCrawler(nil, userAgent),
 		interval:       24 * time.Hour,
 		nextRunAt:      nextMidnight,
 		autoEnabled:    false,
@@ -153,19 +145,8 @@ func (s *Scheduler) runKeywordScrapes(
 		return nil
 	}
 
-	// 1. Resolve API key
-	apiKey := ""
-	if s.cfg != nil {
-		apiKey = s.cfg.GooglePlacesAPIKey
-	}
-	if s.settingsRepo != nil {
-		var savedKey string
-		if err := s.settingsRepo.Get(ctx, "google_places_api_key", &savedKey); err == nil && savedKey != "" {
-			apiKey = savedKey
-		}
-	}
-
-	if apiKey == "" {
+	runner := s.workerPool.KeywordRunner()
+	if runner.APIKey() == "" {
 		slog.Error("Cannot run scheduled scrape: Google Places API key is not configured")
 		return nil
 	}
@@ -218,19 +199,13 @@ func (s *Scheduler) runKeywordScrapes(
 		return nil
 	}
 
-	placesClient := gmaps.NewPlacesAPIClient(apiKey)
 	var createdJobs []*model.ScrapeJob
 
 	for _, kw := range targetKeywords {
-		curToken := kw.NextPageToken
-		curPage := kw.CurrentPage
-		if curToken == "" || kw.Status == model.KeywordStatusCompleted {
-			curToken = ""
-			curPage = 1
-		}
+		_, curPage := StartPosition(kw)
 
-		// Create job record
 		job := &model.ScrapeJob{
+			ID:             uuid.New(),
 			Status:         model.JobStatusProcessing,
 			Query:          kw.Keyword,
 			Location:       "Google Maps",
@@ -245,147 +220,21 @@ func (s *Scheduler) runKeywordScrapes(
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
-
-		if s.jobRepo != nil {
-			_ = s.jobRepo.Create(ctx, job)
+		if err := s.jobRepo.Create(ctx, job); err != nil {
+			slog.Error("Failed to create scheduled job, skipping keyword", "keyword", kw.Keyword, "error", err)
+			continue
 		}
 		createdJobs = append(createdJobs, job)
 
-		// Fetch places with keyword cursor
-		leads, nextToken, pagesFetched, cycleFinished, err := placesClient.SearchPlacesTextWithCursor(
-			ctx,
-			kw.Keyword,
-			curToken,
-			maxPages,
-			pageSize,
-		)
-
-		if err != nil {
-			if gmaps.IsInvalidPageTokenError(err) && curToken != "" {
-				slog.Warn("Page token expired or invalid in scheduler, resetting cursor to page 1 and retrying", "keyword", kw.Keyword, "error", err)
-				_ = s.keywordRepo.ResetCursor(ctx, kw.ID)
-				curToken = ""
-				curPage = 1
-				leads, nextToken, pagesFetched, cycleFinished, err = placesClient.SearchPlacesTextWithCursor(
-					ctx,
-					kw.Keyword,
-					"",
-					maxPages,
-					pageSize,
-				)
-			}
-		}
-
+		_, err := runner.Run(ctx, kw, job.ID, KeywordRunOptions{MaxPages: maxPages, PageSize: pageSize, Enrich: enrich})
 		if err != nil && gmaps.IsQuotaError(err) {
-			// Every remaining keyword would fail the same way: stop the run and keep all cursors as they are.
-			slog.Warn("Places API quota exhausted, stopping scheduled run", "keyword", kw.Keyword, "error", err)
-			if s.jobRepo != nil {
-				_ = s.jobRepo.UpdateStatus(ctx, job.ID, model.JobStatusFailed, 0, 0, 1, "Google Places API daily quota exceeded; remaining keywords skipped until the next run. "+err.Error())
-			}
+			// Every remaining keyword would fail the same way: stop and keep all cursors as they are.
+			slog.Warn("Places API quota exhausted, stopping scheduled run", "keyword", kw.Keyword, "skipped", len(targetKeywords)-len(createdJobs))
 			break
-		}
-
-		if err != nil {
-			slog.Error("Failed keyword scrape via scheduler", "keyword", kw.Keyword, "error", err)
-			if s.jobRepo != nil {
-				_ = s.jobRepo.UpdateStatus(ctx, job.ID, model.JobStatusFailed, 0, 0, 1, fmt.Sprintf("Places error: %v", err))
-			}
-			continue
-		}
-
-		leadsFound := len(leads)
-
-		// Upsert leads into DB
-		if s.businessRepo != nil {
-			for _, lead := range leads {
-				lead.JobID = &job.ID
-				if strings.TrimSpace(lead.Category) == "" {
-					lead.Category = "Local Business"
-				}
-				lead.ScrapeKeywords = append(lead.ScrapeKeywords, kw.Keyword)
-				if _, err := s.businessRepo.Upsert(ctx, lead); err != nil {
-					slog.Error("Failed to upsert lead from scheduled keyword scrape", "keyword", kw.Keyword, "name", lead.Name, "error", err)
-				}
-			}
-		}
-
-		// Update cursor state in DB
-		newCurrentPage := curPage + pagesFetched
-		newStatus := model.NextKeywordStatus(curToken == "", leadsFound, nextToken, cycleFinished)
-		if newStatus != model.KeywordStatusPaginating {
-			nextToken = ""
-		}
-
-		_ = s.keywordRepo.UpdateCursor(ctx, kw.ID, nextToken, newCurrentPage, leadsFound, newStatus)
-
-		// Mark job completed
-		if s.jobRepo != nil {
-			jobMsg := ""
-			if newStatus == model.KeywordStatusNoResults {
-				jobMsg = "Google returned no places for this keyword; try a different wording"
-				slog.Warn("Keyword returned no results", "keyword", kw.Keyword)
-			}
-			_ = s.jobRepo.UpdateStatus(ctx, job.ID, model.JobStatusCompleted, leadsFound, 0, 0, jobMsg)
-		}
-
-		// Background enrichment
-		if enrich && len(leads) > 0 {
-			go s.enrichLeadsAsync(leads)
 		}
 	}
 
 	return createdJobs
-}
-
-func (s *Scheduler) enrichLeadsAsync(leads []*model.BusinessLead) {
-	if len(leads) == 0 || s.crawler == nil || s.businessRepo == nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 5)
-
-	for _, lead := range leads {
-		if strings.TrimSpace(lead.Website) == "" || lead.EnrichmentStatus == model.EnrichmentSuccess {
-			continue
-		}
-
-		wg.Add(1)
-		semaphore <- struct{}{}
-
-		go func(l *model.BusinessLead) {
-			defer wg.Done()
-			defer func() { <-semaphore }()
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Error("panic recovered in scheduled enrichment goroutine", "lead", l.Name, "panic", r)
-				}
-			}()
-
-			if s.crawler == nil {
-				return
-			}
-
-			res, err := s.crawler.EnrichWebsite(ctx, l.Website)
-			if err != nil || res == nil {
-				_ = s.businessRepo.UpdateEnrichment(ctx, l.ID, nil, nil, "", "", "", "", "", "", model.EnrichmentFailed)
-				return
-			}
-
-			_ = s.businessRepo.UpdateEnrichment(
-				ctx, l.ID,
-				res.Emails, res.Phones,
-				res.Socials.Facebook, res.Socials.Instagram, res.Socials.LinkedIn,
-				res.Socials.Twitter, res.Socials.YouTube, res.Socials.TikTok,
-				model.EnrichmentSuccess,
-			)
-		}(lead)
-	}
-
-	wg.Wait()
 }
 
 type ScheduleInfo struct {

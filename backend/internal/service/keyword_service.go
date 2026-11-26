@@ -4,16 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
-	"sync"
 	"time"
 
-	"github.com/google/uuid"
-	"business-scraping-service/backend/internal/config"
-	"business-scraping-service/backend/internal/engine/enrichment"
-	"business-scraping-service/backend/internal/engine/gmaps"
+	"business-scraping-service/backend/internal/engine"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
+
+	"github.com/google/uuid"
 )
 
 type KeywordScrapeResult struct {
@@ -35,28 +32,20 @@ type TriggerScrapeOptions struct {
 }
 
 type KeywordService struct {
-	keywordRepo  *repository.KeywordRepository
-	businessRepo *repository.BusinessRepository
-	jobRepo      *repository.JobRepository
-	settingsRepo *repository.SettingsRepository
-	crawler      *enrichment.Crawler
-	cfg          *config.Config
+	keywordRepo *repository.KeywordRepository
+	jobRepo     *repository.JobRepository
+	runner      *engine.KeywordRunner
 }
 
 func NewKeywordService(
 	keywordRepo *repository.KeywordRepository,
-	businessRepo *repository.BusinessRepository,
 	jobRepo *repository.JobRepository,
-	settingsRepo *repository.SettingsRepository,
-	cfg *config.Config,
+	runner *engine.KeywordRunner,
 ) *KeywordService {
 	return &KeywordService{
-		keywordRepo:  keywordRepo,
-		businessRepo: businessRepo,
-		jobRepo:      jobRepo,
-		settingsRepo: settingsRepo,
-		crawler:      enrichment.NewCrawler(nil, cfg.DefaultUserAgent),
-		cfg:          cfg,
+		keywordRepo: keywordRepo,
+		jobRepo:     jobRepo,
+		runner:      runner,
 	}
 }
 
@@ -108,38 +97,23 @@ func (s *KeywordService) TriggerKeywordScrape(ctx context.Context, id uuid.UUID,
 	if err != nil {
 		return nil, fmt.Errorf("keyword not found: %w", err)
 	}
-
-	// 1. Resolve API Key & Pagination Settings
-	apiKey := s.cfg.GooglePlacesAPIKey
-	if s.settingsRepo != nil {
-		var savedKey string
-		if err := s.settingsRepo.Get(ctx, "google_places_api_key", &savedKey); err == nil && savedKey != "" {
-			apiKey = savedKey
-		}
+	if kw.Status == model.KeywordStatusProcessing {
+		return nil, fmt.Errorf("keyword %q is already being scraped", kw.Keyword)
 	}
-
-	if apiKey == "" {
-		return nil, fmt.Errorf("google places api key is not configured")
+	if s.runner.APIKey() == "" {
+		return nil, engine.ErrNoAPIKey
 	}
 
 	maxPages := opts.MaxPages
 	if maxPages <= 0 {
 		maxPages = 1
 	}
-	pageSize := 20
+	const pageSize = 20
+	_, startPage := engine.StartPosition(kw)
 
-	startToken := kw.NextPageToken
-	startPage := kw.CurrentPage
-	if startToken == "" || kw.Status == model.KeywordStatusCompleted {
-		startToken = ""
-		startPage = 1
-	}
-
-	// 2. Create Scrape Job for tracking and live history
-	jobID := uuid.New()
 	startTime := time.Now().UTC()
 	job := &model.ScrapeJob{
-		ID:             jobID,
+		ID:             uuid.New(),
 		Status:         model.JobStatusProcessing,
 		Query:          kw.Keyword,
 		Location:       "Google Maps",
@@ -148,162 +122,36 @@ func (s *KeywordService) TriggerKeywordScrape(ctx context.Context, id uuid.UUID,
 		EnrichContacts: opts.EnrichContacts,
 		StartedAt:      &startTime,
 	}
-	if s.jobRepo != nil {
-		_ = s.jobRepo.Create(ctx, job)
+	if err := s.jobRepo.Create(ctx, job); err != nil {
+		return nil, fmt.Errorf("failed to create scrape job: %w", err)
+	}
+	if err := s.keywordRepo.SetStatus(ctx, kw.ID, model.KeywordStatusProcessing); err != nil {
+		return nil, fmt.Errorf("failed to mark keyword processing: %w", err)
 	}
 
-	// 3. Mark keyword status as processing immediately in DB
-	_ = s.keywordRepo.SetStatus(ctx, kw.ID, model.KeywordStatusProcessing)
-
-	// 4. Run scraping in background goroutine to avoid freezing UI
-	go func(targetKw *model.ScraperKeyword, targetJobID uuid.UUID, key string, pages int, enrich bool, initialToken string, initialPage int) {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("panic recovered in keyword scrape worker", "keyword", targetKw.Keyword, "panic", r)
-				_ = s.keywordRepo.SetStatus(context.Background(), targetKw.ID, model.KeywordStatusReady)
-			}
-		}()
-
+	// Run in the background so the UI is not blocked; the runner always leaves the job and keyword in a final state.
+	go func() {
 		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-
-		curToken := initialToken
-		curPage := initialPage
-
-		placesClient := gmaps.NewPlacesAPIClient(key)
-		leads, nextToken, pagesFetched, cycleFinished, fetchErr := placesClient.SearchPlacesTextWithCursor(bgCtx, targetKw.Keyword, curToken, pages, pageSize)
-		if fetchErr != nil {
-			// Check if the failure was due to an expired or invalid pageToken
-			if gmaps.IsInvalidPageTokenError(fetchErr) && curToken != "" {
-				slog.Warn("Page token expired or invalid, resetting cursor to page 1 and retrying", "keyword", targetKw.Keyword, "error", fetchErr)
-				_ = s.keywordRepo.ResetCursor(bgCtx, targetKw.ID)
-				curToken = ""
-				curPage = 1
-				leads, nextToken, pagesFetched, cycleFinished, fetchErr = placesClient.SearchPlacesTextWithCursor(bgCtx, targetKw.Keyword, "", pages, pageSize)
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("panic recovered in keyword scrape worker", "keyword", kw.Keyword, "panic", r)
+				_ = s.keywordRepo.SetStatus(context.Background(), kw.ID, model.KeywordStatusReady)
 			}
-		}
-
-		if fetchErr != nil {
-			errMsg := fetchErr.Error()
-			if gmaps.IsQuotaError(fetchErr) {
-				// The cursor is left untouched, so the next run continues where this one stopped.
-				slog.Warn("Places API quota exhausted, keyword scrape paused", "keyword", targetKw.Keyword, "error", fetchErr)
-				errMsg = "Google Places API daily quota exceeded; try again after the quota resets. " + errMsg
-			} else {
-				slog.Error("Google Places fetch failed for keyword", "keyword", targetKw.Keyword, "error", fetchErr)
-			}
-			if s.jobRepo != nil {
-				_ = s.jobRepo.UpdateStatus(bgCtx, targetJobID, model.JobStatusFailed, 0, 0, 1, errMsg)
-			}
-			_ = s.keywordRepo.SetStatus(bgCtx, targetKw.ID, model.KeywordStatusReady)
-			return
-		}
-
-		// Ingest leads into DB
-		newCount := 0
-		for _, lead := range leads {
-			if strings.TrimSpace(lead.Category) == "" {
-				lead.Category = "Local Business"
-			}
-			lead.JobID = &targetJobID
-			lead.ScrapeKeywords = append(lead.ScrapeKeywords, targetKw.Keyword)
-			wasNew, upsertErr := s.businessRepo.Upsert(bgCtx, lead)
-			if upsertErr != nil {
-				slog.Error("Failed to upsert lead from keyword scrape", "keyword", targetKw.Keyword, "name", lead.Name, "error", upsertErr)
-			}
-			if wasNew {
-				newCount++
-			}
-		}
-
-		// Update Cursor state in DB
-		newCurrentPage := curPage + pagesFetched
-		newStatus := model.NextKeywordStatus(curToken == "", len(leads), nextToken, cycleFinished)
-		if newStatus != model.KeywordStatusPaginating {
-			nextToken = ""
-		}
-
-		// Update Job status to Completed (number of leads retrieved in this scrape run)
-		if s.jobRepo != nil {
-			jobMsg := ""
-			if newStatus == model.KeywordStatusNoResults {
-				jobMsg = "Google returned no places for this keyword; try a different wording"
-				slog.Warn("Keyword returned no results", "keyword", targetKw.Keyword)
-			}
-			_ = s.jobRepo.UpdateStatus(bgCtx, targetJobID, model.JobStatusCompleted, len(leads), 0, 0, jobMsg)
-		}
-
-		if err := s.keywordRepo.UpdateCursor(bgCtx, targetKw.ID, nextToken, newCurrentPage, len(leads), newStatus); err != nil {
-			slog.Error("Failed to update keyword cursor state", "keyword_id", targetKw.ID, "error", err)
-		}
-
-		// Background Enrichment for leads with websites
-		if enrich && len(leads) > 0 {
-			s.enrichLeadsAsync(leads, targetJobID)
-		}
-	}(kw, jobID, apiKey, maxPages, opts.EnrichContacts, startToken, startPage)
+		}()
+		_, _ = s.runner.Run(bgCtx, kw, job.ID, engine.KeywordRunOptions{
+			MaxPages: maxPages,
+			PageSize: pageSize,
+			Enrich:   opts.EnrichContacts,
+		})
+	}()
 
 	return &KeywordScrapeResult{
-		JobID:             jobID.String(),
+		JobID:             job.ID.String(),
 		Keyword:           kw.Keyword,
 		Status:            model.KeywordStatusProcessing,
 		CurrentPage:       startPage,
 		TotalLeadsScraped: kw.TotalLeadsScraped,
 		Message:           "Scrape started in background",
 	}, nil
-}
-
-func (s *KeywordService) enrichLeadsAsync(leads []*model.BusinessLead, jobID uuid.UUID) {
-	if len(leads) == 0 {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancel()
-
-	var wg sync.WaitGroup
-	semaphore := make(chan struct{}, 5)
-
-	for _, lead := range leads {
-		if strings.TrimSpace(lead.Website) == "" || lead.EnrichmentStatus == model.EnrichmentSuccess {
-			continue
-		}
-
-		wg.Add(1)
-		semaphore <- struct{}{}
-
-		go func(l *model.BusinessLead) {
-			defer wg.Done()
-			defer func() { <-semaphore }()
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Error("panic recovered in keyword enrichment goroutine", "lead", l.Name, "panic", r)
-				}
-			}()
-
-			if s.crawler == nil {
-				return
-			}
-
-			res, err := s.crawler.EnrichWebsite(ctx, l.Website)
-			if err != nil || res == nil {
-				_ = s.businessRepo.UpdateEnrichment(ctx, l.ID, nil, nil, "", "", "", "", "", "", model.EnrichmentFailed)
-				return
-			}
-
-			_ = s.businessRepo.UpdateEnrichment(
-				ctx, l.ID,
-				res.Emails, res.Phones,
-				res.Socials.Facebook, res.Socials.Instagram, res.Socials.LinkedIn,
-				res.Socials.Twitter, res.Socials.YouTube, res.Socials.TikTok,
-				model.EnrichmentSuccess,
-			)
-
-			if s.jobRepo != nil && len(res.Emails) > 0 {
-				_ = s.jobRepo.IncrementProgress(context.Background(), jobID, 0, 1, 0)
-			}
-		}(lead)
-	}
-
-	wg.Wait()
 }

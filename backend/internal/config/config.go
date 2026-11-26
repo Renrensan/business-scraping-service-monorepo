@@ -27,6 +27,8 @@ type Config struct {
 	DefaultUserAgent       string
 	Proxies                []string
 	GooglePlacesAPIKey     string
+	// GooglePlacesBaseURL overrides the Places API host; only for local end-to-end tests with a fake server.
+	GooglePlacesBaseURL string
 }
 
 func LoadConfig() (*Config, error) {
@@ -77,6 +79,7 @@ func LoadConfig() (*Config, error) {
 		SuperAdminEmail:        superAdminEmail,
 		SuperAdminUsername:     superAdminUsername,
 		SuperAdminPassword:     superAdminPassword,
+		GooglePlacesBaseURL:    cleanStr(getEnv("GOOGLE_PLACES_BASE_URL", "")),
 		MaxConcurrentScrapers:  maxScrapers,
 		MaxConcurrentEnrichers: maxEnrichers,
 		DefaultUserAgent:       defaultUA,

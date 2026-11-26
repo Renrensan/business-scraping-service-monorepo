@@ -2,18 +2,20 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/redis/go-redis/v9"
 	"business-scraping-service/backend/internal/config"
 	"business-scraping-service/backend/internal/engine/enrichment"
 	"business-scraping-service/backend/internal/engine/gmaps"
 	"business-scraping-service/backend/internal/engine/proxy"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
+
+	"github.com/redis/go-redis/v9"
 )
 
 type WorkerPool struct {
@@ -23,49 +25,67 @@ type WorkerPool struct {
 	redisClient  *redis.Client
 	rotator      *proxy.Rotator
 	webClient    *gmaps.WebClient
-	placesClient *gmaps.PlacesAPIClient
-	crawler      *enrichment.Crawler
+	enricher     *LeadEnricher
+	runner       *KeywordRunner
 	jobSem       chan struct{}
-	enrichSem    chan struct{}
+
+	keyMu  sync.RWMutex
+	apiKey string
+
+	// newPlaces builds the Places client; tests swap it for a fake.
+	newPlaces func(apiKey string) PlacesSearcher
 }
 
 func NewWorkerPool(
 	cfg *config.Config,
 	jobRepo *repository.JobRepository,
 	businessRepo *repository.BusinessRepository,
+	keywordRepo *repository.KeywordRepository,
 	redisClient *redis.Client,
 ) *WorkerPool {
 	rotator := proxy.NewRotator(cfg.Proxies)
 	webClient := gmaps.NewWebClient(rotator, cfg.DefaultUserAgent)
-	placesClient := gmaps.NewPlacesAPIClient(cfg.GooglePlacesAPIKey)
 	crawler := enrichment.NewCrawler(rotator, cfg.DefaultUserAgent)
 
 	maxScrapers := cfg.MaxConcurrentScrapers
 	if maxScrapers <= 0 {
 		maxScrapers = 5
 	}
-	maxEnrichers := cfg.MaxConcurrentEnrichers
-	if maxEnrichers <= 0 {
-		maxEnrichers = 10
-	}
 
-	return &WorkerPool{
+	wp := &WorkerPool{
 		cfg:          cfg,
 		jobRepo:      jobRepo,
 		businessRepo: businessRepo,
 		redisClient:  redisClient,
 		rotator:      rotator,
 		webClient:    webClient,
-		placesClient: placesClient,
-		crawler:      crawler,
 		jobSem:       make(chan struct{}, maxScrapers),
-		enrichSem:    make(chan struct{}, maxEnrichers),
+		apiKey:       cfg.GooglePlacesAPIKey,
+		newPlaces: func(key string) PlacesSearcher {
+			return gmaps.NewPlacesAPIClient(key)
+		},
 	}
+	wp.enricher = NewLeadEnricher(crawler, businessRepo, jobRepo, cfg.MaxConcurrentEnrichers)
+	wp.runner = NewKeywordRunner(keywordRepo, businessRepo, jobRepo, wp.enricher, wp.APIKey)
+	return wp
+}
+
+// APIKey is the Places API key in effect (Settings page key, else env key).
+func (wp *WorkerPool) APIKey() string {
+	wp.keyMu.RLock()
+	defer wp.keyMu.RUnlock()
+	return wp.apiKey
 }
 
 func (wp *WorkerPool) SetGoogleAPIKey(apiKey string) {
-	wp.cfg.GooglePlacesAPIKey = apiKey
-	wp.placesClient = gmaps.NewPlacesAPIClient(apiKey)
+	wp.keyMu.Lock()
+	wp.apiKey = apiKey
+	wp.keyMu.Unlock()
+}
+
+// KeywordRunner is the shared keyword pipeline used by the keyword service and the scheduler.
+func (wp *WorkerPool) KeywordRunner() *KeywordRunner {
+	return wp.runner
 }
 
 func (wp *WorkerPool) SetProxies(proxies []string) {
@@ -86,7 +106,9 @@ func (wp *WorkerPool) SubmitJob(job *model.ScrapeJob) {
 
 func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 	slog.Info("Starting scrape job", "job_id", job.ID, "query", job.Query, "location", job.Location)
-	_ = wp.jobRepo.UpdateStatus(ctx, job.ID, model.JobStatusProcessing, 0, 0, 0, "")
+	if err := wp.jobRepo.UpdateStatus(ctx, job.ID, model.JobStatusProcessing, 0, 0, 0, ""); err != nil {
+		slog.Error("Failed to mark job processing", "job_id", job.ID, "error", err)
+	}
 
 	onlyNew, _ := job.Metadata["only_new_businesses"].(bool)
 	searchQuery := gmaps.BuildSearchQueryWithFilter(job.Query, job.Location, job.Category, onlyNew)
@@ -94,15 +116,13 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 	var leads []*model.BusinessLead
 	var err error
 
-	// 1. Extraction Phase (Google Places API if key provided, else HTML scraper)
-	apiKey := wp.cfg.GooglePlacesAPIKey
-
+	// 1. Extraction Phase (Google Places API if a key is set, else the experimental HTML scraper)
+	apiKey := wp.APIKey()
 	engineChoice, _ := job.Metadata["engine"].(string)
 
 	if engineChoice != "web" && apiKey != "" {
 		slog.Info("Executing extraction via Google Places API (New)", "query", searchQuery, "job_id", job.ID)
-		client := gmaps.NewPlacesAPIClient(apiKey)
-		leads, err = client.SearchPlacesText(ctx, searchQuery, job.MaxResults)
+		leads, err = wp.newPlaces(apiKey).SearchPlacesText(ctx, searchQuery, job.MaxResults)
 	} else {
 		slog.Info("Executing extraction via Maps Web Scraper", "query", searchQuery, "job_id", job.ID)
 		leads, err = wp.webClient.SearchPlaces(ctx, searchQuery, job.MaxResults)
@@ -176,103 +196,55 @@ func (wp *WorkerPool) processJob(ctx context.Context, job *model.ScrapeJob) {
 	}
 	// Note: If websiteFilter == "any" (or empty without requireWebsite), all places are kept.
 
-	totalScraped := len(leads)
+	// 2. Storage: tag leads with the search that found them, separately from their real categories.
+	var tags []string
+	if job.Query != "" && !strings.EqualFold(job.Query, "businesses") {
+		tags = append(tags, job.Query)
+	}
+	if job.Category != "" && !strings.EqualFold(job.Category, "all categories") && !strings.EqualFold(job.Category, "any business") && job.Category != job.Query {
+		tags = append(tags, job.Category)
+	}
+	ingest := IngestLeads(ctx, wp.businessRepo, job.ID, leads, tags...)
+	if ingest.Saved > 0 || ingest.Failed > 0 {
+		if perr := wp.jobRepo.IncrementProgress(ctx, job.ID, ingest.Saved, 0, ingest.Failed); perr != nil {
+			slog.Error("Failed to update job progress", "job_id", job.ID, "error", perr)
+		}
+	}
+
+	// 3. Contact & Social Enrichment Phase (waits, so the job finishes with its final counts)
 	totalEnriched := 0
-	errorCount := 0
-
-	// 2. Storage & Upsert Phase
-	for _, lead := range leads {
-		lead.JobID = &job.ID
-		// Keep Google's category: never replace it with the search text, or every result of a
-		// search (hotels returned for "petshop") would be filed under that search's category.
-		if lead.Category == "" {
-			lead.Category = "Local Business"
-		}
-
-		// Record which search found this lead, separately from its real categories.
-		if job.Query != "" && !strings.EqualFold(job.Query, "businesses") {
-			lead.ScrapeKeywords = append(lead.ScrapeKeywords, job.Query)
-		}
-		if job.Category != "" && !strings.EqualFold(job.Category, "all categories") && !strings.EqualFold(job.Category, "any business") && job.Category != job.Query {
-			lead.ScrapeKeywords = append(lead.ScrapeKeywords, job.Category)
-		}
-
-		if _, err := wp.businessRepo.Upsert(ctx, lead); err != nil {
-			slog.Error("Failed to upsert lead", "name", lead.Name, "error", err)
-			errorCount++
-		}
-	}
-
-	if totalScraped > 0 {
-		_ = wp.jobRepo.IncrementProgress(ctx, job.ID, totalScraped, 0, errorCount)
-	}
-
-	// 3. Contact & Social Enrichment Phase (if enabled and website exists)
-	if job.EnrichContacts && len(leads) > 0 {
-		var wg sync.WaitGroup
-		var mu sync.Mutex
-
-		for _, lead := range leads {
-			if lead.Website == "" {
-				continue
-			}
-			wg.Add(1)
-			go func(l *model.BusinessLead) {
-				defer wg.Done()
-				wp.enrichSem <- struct{}{}
-				defer func() { <-wp.enrichSem }()
-
-				enrichResult, err := wp.enrichLead(ctx, l)
-				if err == nil && enrichResult != nil {
-					mu.Lock()
-					totalEnriched++
-					mu.Unlock()
-					_ = wp.jobRepo.IncrementProgress(ctx, job.ID, 0, 1, 0)
-				}
-			}(lead)
-		}
-		wg.Wait()
+	if job.EnrichContacts {
+		totalEnriched = wp.enricher.Enrich(ctx, job.ID, ingest.Upserted)
 	}
 
 	// 4. Final Completion
-	finalStatus := model.JobStatusCompleted
-	errMsg := ""
-	if err != nil && totalScraped == 0 {
-		finalStatus = model.JobStatusFailed
-		errMsg = err.Error()
-	} else if totalScraped == 0 {
-		finalStatus = model.JobStatusFailed
-		errMsg = "No listings found matching query"
+	finalStatus, errMsg := manualJobOutcome(len(leads), ingest, err)
+	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if uerr := wp.jobRepo.UpdateStatus(writeCtx, job.ID, finalStatus, ingest.Saved, totalEnriched, ingest.Failed, errMsg); uerr != nil {
+		slog.Error("Failed to update job status", "job_id", job.ID, "error", uerr)
 	}
-
-	_ = wp.jobRepo.UpdateStatus(ctx, job.ID, finalStatus, totalScraped, totalEnriched, errorCount, errMsg)
-	slog.Info("Finished scrape job", "job_id", job.ID, "status", finalStatus, "scraped", totalScraped, "enriched", totalEnriched)
+	slog.Info("Finished scrape job", "job_id", job.ID, "status", finalStatus, "scraped", ingest.Saved, "enriched", totalEnriched)
 }
 
-func (wp *WorkerPool) enrichLead(ctx context.Context, lead *model.BusinessLead) (*enrichment.EnrichmentResult, error) {
-	if lead.Website == "" {
-		return nil, nil
+// manualJobOutcome decides a manual job's final status and message.
+func manualJobOutcome(found int, ingest IngestResult, fetchErr error) (model.JobStatus, string) {
+	switch {
+	case ingest.Saved == 0 && fetchErr != nil:
+		if gmaps.IsQuotaError(fetchErr) {
+			return model.JobStatusFailed, "Google Places API daily quota exceeded; try again after the quota resets. " + fetchErr.Error()
+		}
+		return model.JobStatusFailed, fetchErr.Error()
+	case ingest.Saved == 0 && ingest.Failed > 0:
+		return model.JobStatusFailed, fmt.Sprintf("Failed to save any of %d leads: %v", ingest.Failed, ingest.LastErr)
+	case ingest.Saved == 0 && found > 0:
+		return model.JobStatusFailed, "No listings matched the selected filters"
+	case ingest.Saved == 0:
+		return model.JobStatusFailed, "No listings found matching query"
+	case fetchErr != nil:
+		return model.JobStatusCompleted, "Stopped early, kept the results found so far: " + fetchErr.Error()
+	case ingest.Failed > 0:
+		return model.JobStatusCompleted, fmt.Sprintf("%d leads could not be saved: %v", ingest.Failed, ingest.LastErr)
 	}
-
-	res, err := wp.crawler.EnrichWebsite(ctx, lead.Website)
-	if err != nil {
-		_ = wp.businessRepo.UpdateEnrichment(ctx, lead.ID, nil, nil, "", "", "", "", "", "", model.EnrichmentFailed)
-		return nil, err
-	}
-
-	_ = wp.businessRepo.UpdateEnrichment(
-		ctx,
-		lead.ID,
-		res.Emails,
-		res.Phones,
-		res.Socials.Facebook,
-		res.Socials.Instagram,
-		res.Socials.LinkedIn,
-		res.Socials.Twitter,
-		res.Socials.YouTube,
-		res.Socials.TikTok,
-		model.EnrichmentSuccess,
-	)
-
-	return res, nil
+	return model.JobStatusCompleted, ""
 }

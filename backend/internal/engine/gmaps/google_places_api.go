@@ -48,10 +48,13 @@ type PlacesAPIClient struct {
 	pagePacing time.Duration
 }
 
+// DefaultBaseURL is the Places API host. Overridable (GOOGLE_PLACES_BASE_URL) for local end-to-end tests.
+var DefaultBaseURL = "https://places.googleapis.com"
+
 func NewPlacesAPIClient(apiKey string) *PlacesAPIClient {
 	return &PlacesAPIClient{
 		apiKey:  apiKey,
-		baseURL: "https://places.googleapis.com",
+		baseURL: DefaultBaseURL,
 		httpClient: &http.Client{
 			Timeout: 15 * time.Second,
 		},

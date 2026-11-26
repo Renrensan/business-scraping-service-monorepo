@@ -10,18 +10,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 	"business-scraping-service/backend/internal/api"
 	"business-scraping-service/backend/internal/api/handler"
 	"business-scraping-service/backend/internal/config"
 	"business-scraping-service/backend/internal/engine"
+	"business-scraping-service/backend/internal/engine/gmaps"
 	"business-scraping-service/backend/internal/logger"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
 	"business-scraping-service/backend/internal/service"
 	"business-scraping-service/backend/internal/session"
 	"business-scraping-service/backend/internal/utils"
+
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -90,8 +92,13 @@ func main() {
 		cfg.GooglePlacesAPIKey = savedAPIKey
 	}
 
+	if cfg.GooglePlacesBaseURL != "" {
+		slog.Warn("Using a non-default Google Places API host", "url", cfg.GooglePlacesBaseURL)
+		gmaps.DefaultBaseURL = cfg.GooglePlacesBaseURL
+	}
+
 	// 8. Initialize Extraction & Enrichment Engine & Scheduler
-	workerPool := engine.NewWorkerPool(cfg, jobRepo, businessRepo, redisCli)
+	workerPool := engine.NewWorkerPool(cfg, jobRepo, businessRepo, keywordRepo, redisCli)
 	scheduler := engine.NewScheduler(workerPool, jobRepo, businessRepo, settingsRepo, keywordRepo, cfg)
 	scheduler.Start(ctx)
 
@@ -102,7 +109,7 @@ func main() {
 	exportSvc := service.NewExportService(businessRepo)
 	metricsSvc := service.NewMetricsService(businessRepo, scheduler)
 	systemSvc := service.NewSystemService(cfg, dbPool, redisCli, workerPool, scheduler, settingsRepo)
-	keywordSvc := service.NewKeywordService(keywordRepo, businessRepo, jobRepo, settingsRepo, cfg)
+	keywordSvc := service.NewKeywordService(keywordRepo, jobRepo, workerPool.KeywordRunner())
 
 	// 10. Initialize Handlers
 	handlers := &api.Handlers{

@@ -5,11 +5,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/google/uuid"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/service"
 	"business-scraping-service/backend/internal/utils"
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 type BusinessHandler struct {
@@ -141,4 +141,3 @@ func (h *BusinessHandler) GetCategories(w http.ResponseWriter, r *http.Request) 
 	}
 	utils.RespondJSON(w, http.StatusOK, categories)
 }
-

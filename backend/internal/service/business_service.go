@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 
-	"github.com/google/uuid"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
+	"github.com/google/uuid"
 )
 
 type BusinessService struct {

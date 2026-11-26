@@ -37,8 +37,9 @@ func (h *ExportHandler) ExportCSV(w http.ResponseWriter, r *http.Request) {
 
 // ExportWAContacts downloads the filtered leads as a Google Contacts CSV for WhatsApp.
 // Query params (besides the normal filters):
-//   mobile_only   default true  — skip leads that only have a landline
-//   status_prefix default false — name contacts "[HOT] Business Name"
+//
+//	mobile_only   default true  — skip leads that only have a landline
+//	status_prefix default false — name contacts "[HOT] Business Name"
 func (h *ExportHandler) ExportWAContacts(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	filter := parseBusinessFilter(q)

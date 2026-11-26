@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/utils"
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 const (

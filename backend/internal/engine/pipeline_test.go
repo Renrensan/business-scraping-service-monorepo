@@ -107,7 +107,9 @@ func (f *fakeKeywords) RecordRunOutcome(ctx context.Context, id uuid.UUID, n int
 	f.outcomes = append(f.outcomes, n)
 	return nil
 }
-func (f *fakeKeywords) CountCells(ctx context.Context, id uuid.UUID) (int, error) { return len(f.cells), nil }
+func (f *fakeKeywords) CountCells(ctx context.Context, id uuid.UUID) (int, error) {
+	return len(f.cells), nil
+}
 func (f *fakeKeywords) StartCycle(ctx context.Context, id uuid.UUID, a *model.Area) error {
 	f.cells = []*model.KeywordCell{{ID: uuid.New(), KeywordID: id, Status: "pending", LowLat: a.LowLat, LowLng: a.LowLng, HighLat: a.HighLat, HighLng: a.HighLng}}
 	return nil
@@ -162,7 +164,9 @@ func (f *fakeKeywords) CycleResults(ctx context.Context, id uuid.UUID) (int, err
 
 type fakeAreas struct{ area *model.Area }
 
-func (f fakeAreas) GetByID(ctx context.Context, id uuid.UUID) (*model.Area, error) { return f.area, nil }
+func (f fakeAreas) GetByID(ctx context.Context, id uuid.UUID) (*model.Area, error) {
+	return f.area, nil
+}
 
 func (f *fakeKeywords) UpdateCursor(ctx context.Context, id uuid.UUID, tok string, page, add int, s model.KeywordStatus) error {
 	if f.cursorErr != nil {

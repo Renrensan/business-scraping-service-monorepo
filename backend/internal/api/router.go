@@ -3,13 +3,13 @@ package api
 import (
 	"net/http"
 
-	"github.com/go-chi/chi/v5"
-	chiMiddleware "github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
 	"business-scraping-service/backend/internal/api/handler"
 	"business-scraping-service/backend/internal/api/middleware"
 	"business-scraping-service/backend/internal/config"
 	"business-scraping-service/backend/internal/service"
+	"github.com/go-chi/chi/v5"
+	chiMiddleware "github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 )
 
 type Handlers struct {

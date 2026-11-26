@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/google/uuid"
 	"business-scraping-service/backend/internal/model"
 	"business-scraping-service/backend/internal/repository"
 	"business-scraping-service/backend/internal/session"
 	"business-scraping-service/backend/internal/utils"
+	"github.com/google/uuid"
 )
 
 type AuthService struct {
